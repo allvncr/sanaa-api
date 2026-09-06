@@ -15,8 +15,15 @@ const creerProduit = asyncHandler(async (req, res) => sendOne(res, await service
 const modifierProduit = asyncHandler(async (req, res) =>
   sendOne(res, await service.modifierProduit(req.params.id, req.body))
 );
+const supprimerProduit = asyncHandler(async (req, res) => sendOne(res, await service.supprimerProduit(req.params.id)));
 const ajouterVariante = asyncHandler(async (req, res) =>
   sendOne(res, await service.ajouterVariante(req.params.id, req.body), 201)
+);
+const modifierVariante = asyncHandler(async (req, res) =>
+  sendOne(res, await service.modifierVariante(req.params.id, req.params.varianteId, req.body))
+);
+const supprimerVariante = asyncHandler(async (req, res) =>
+  sendOne(res, await service.supprimerVariante(req.params.id, req.params.varianteId))
 );
 
 const prixEffectif = asyncHandler(async (req, res) => {
@@ -37,7 +44,10 @@ module.exports = {
   obtenirProduit,
   creerProduit,
   modifierProduit,
+  supprimerProduit,
   ajouterVariante,
+  modifierVariante,
+  supprimerVariante,
   prixEffectif,
   definirPrixPays,
 };

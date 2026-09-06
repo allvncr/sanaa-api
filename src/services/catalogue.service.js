@@ -58,10 +58,77 @@ async function modifierProduit(id, data) {
   return produit;
 }
 
+/**
+ * Suppression d'un produit (retour V0.1) — refusée si des commandes ou des
+ * mouvements de stock le référencent déjà (même via une seule de ses
+ * variantes), pour ne jamais casser l'historique. `statut: 'inactif'` via
+ * modifierProduit() reste la voie pour le retirer de la vente sans perte de
+ * données.
+ */
+async function supprimerProduit(id) {
+  const produit = await Produit.findById(id);
+  if (!produit) throw ApiError.notFound('Produit introuvable');
+
+  const Commande = require('../models/Commande');
+  const StockMouvement = require('../models/StockMouvement');
+  const [utiliseDansCommande, utiliseDansStock] = await Promise.all([
+    Commande.exists({ 'lignes.produit_id': id }),
+    StockMouvement.exists({ produit_id: id }),
+  ]);
+  if (utiliseDansCommande || utiliseDansStock) {
+    throw ApiError.conflict(
+      "Suppression impossible : ce produit est déjà référencé par des commandes ou des mouvements de stock. Désactivez-le plutôt (statut = inactif)."
+    );
+  }
+
+  await Produit.deleteOne({ _id: id });
+  return { supprime: true };
+}
+
 async function ajouterVariante(produitId, variante) {
   const produit = await Produit.findById(produitId);
   if (!produit) throw ApiError.notFound('Produit introuvable');
   produit.variantes.push(variante);
+  await produit.save();
+  return produit;
+}
+
+async function modifierVariante(produitId, varianteId, data) {
+  const produit = await Produit.findById(produitId);
+  if (!produit) throw ApiError.notFound('Produit introuvable');
+  const variante = produit.variantes.id(varianteId);
+  if (!variante) throw ApiError.notFound('Variante introuvable');
+  if (data.couleur !== undefined) variante.couleur = data.couleur;
+  if (data.couleur_zh !== undefined) variante.couleur_zh = data.couleur_zh;
+  if (data.actif !== undefined) variante.actif = data.actif;
+  await produit.save();
+  return produit;
+}
+
+/**
+ * Suppression d'une variante — même garde que pour un produit entier (une
+ * ligne de commande ou un mouvement de stock peut référencer précisément
+ * cette variante sans référencer les autres du même produit).
+ */
+async function supprimerVariante(produitId, varianteId) {
+  const produit = await Produit.findById(produitId);
+  if (!produit) throw ApiError.notFound('Produit introuvable');
+  const variante = produit.variantes.id(varianteId);
+  if (!variante) throw ApiError.notFound('Variante introuvable');
+
+  const Commande = require('../models/Commande');
+  const StockMouvement = require('../models/StockMouvement');
+  const [utiliseDansCommande, utiliseDansStock] = await Promise.all([
+    Commande.exists({ 'lignes.variante_id': varianteId }),
+    StockMouvement.exists({ variante_id: varianteId }),
+  ]);
+  if (utiliseDansCommande || utiliseDansStock) {
+    throw ApiError.conflict(
+      "Suppression impossible : cette variante est déjà référencée par des commandes ou des mouvements de stock. Désactivez-la plutôt."
+    );
+  }
+
+  variante.deleteOne();
   await produit.save();
   return produit;
 }
@@ -146,7 +213,10 @@ module.exports = {
   obtenirProduit,
   creerProduit,
   modifierProduit,
+  supprimerProduit,
   ajouterVariante,
+  modifierVariante,
+  supprimerVariante,
   prixEffectif,
   definirPrixPays,
   heriterCatalogue,
