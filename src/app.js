@@ -12,16 +12,17 @@ const logger = require('./utils/logger');
 const app = express();
 
 app.use(helmet());
-app.use(
-  cors({
-    origin(origin, callback) {
-      // Pas d'en-tête Origin (ex. requête serveur-à-serveur, curl) : autorisé.
-      if (!origin || env.corsOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error(`Origine non autorisée par CORS : ${origin}`));
-    },
-    credentials: true,
-  })
-);
+// app.use(
+//   cors({
+//     origin(origin, callback) {
+//       // Pas d'en-tête Origin (ex. requête serveur-à-serveur, curl) : autorisé.
+//       if (!origin || env.corsOrigins.includes(origin)) return callback(null, true);
+//       return callback(new Error(`Origine non autorisée par CORS : ${origin}`));
+//     },
+//     credentials: true,
+//   })
+// );
+app.use(cors());
 app.use(compression());
 app.use(express.json({ limit: '2mb' }));
 app.use(morgan('combined', { stream: { write: (msg) => logger.info(msg.trim()) } }));
