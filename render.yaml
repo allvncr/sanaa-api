@@ -1,0 +1,40 @@
+# Blueprint Render pour le backend SANAA (déploiement gratuit).
+# Sur render.com : New + > Blueprint > connecter ce dépôt Git > Render lit ce
+# fichier automatiquement et propose de créer le service ci-dessous.
+#
+# Important (plan gratuit Render) : le disque est éphémère — tout fichier
+# écrit sous EXPORTS_DIR (les exports Excel) est perdu à chaque redémarrage/
+# redéploiement du service. Acceptable pour démarrer ; migrer vers un stockage
+# persistant (S3/MinIO, voir section 2.7 de l'architecture) si les exports
+# doivent être conservés durablement.
+services:
+  - type: web
+    name: sanaa-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # À renseigner manuellement dans le tableau de bord Render (secret) :
+      # l'URI MongoDB Atlas complète, avec mot de passe.
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES
+        value: 30d
+      - key: DEVISE_REFERENCE_GLOBALE
+        value: XOF
+      # À renseigner une fois le frontend déployé (ex. https://sanaa.vercel.app) —
+      # plusieurs origines possibles séparées par une virgule.
+      - key: CORS_ORIGIN
+        sync: false
+      - key: EXPORTS_DIR
+        value: ./storage/exports
