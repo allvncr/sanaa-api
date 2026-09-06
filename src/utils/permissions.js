@@ -10,7 +10,7 @@ const PERMISSIONS = {
   paiements: ['voir', 'enregistrer', 'annuler'],
   stock: ['voir', 'ajuster', 'transferer'],
   fournisseurs: ['voir', 'gerer'],
-  depenses: ['voir', 'creer', 'valider'],
+  depenses: ['voir', 'creer', 'valider', 'supprimer'],
   marketing: ['voir', 'gerer'],
   exports: ['generer', 'telecharger', 'regenerer'],
   dashboard: ['voir_pays', 'voir_global', 'comparer_pays'],
@@ -51,7 +51,7 @@ const ROLES_PAR_DEFAUT = [
     portee: 'pays',
     permissions: [
       'paiements:voir', 'paiements:enregistrer', 'paiements:annuler',
-      'depenses:voir', 'depenses:creer', 'depenses:valider',
+      'depenses:voir', 'depenses:creer', 'depenses:valider', 'depenses:supprimer',
       'exports:generer', 'exports:telecharger', 'exports:regenerer',
       'dashboard:voir_pays', 'commandes:voir', 'clients:voir',
     ],

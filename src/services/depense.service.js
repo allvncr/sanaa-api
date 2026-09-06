@@ -36,4 +36,18 @@ async function valider(id, utilisateurId) {
   return depense;
 }
 
-module.exports = { listerCategories, creerCategorie, lister, creer, valider };
+// Rien d'autre ne référence une dépense (contrairement à un produit ou un
+// pays) : la suppression ne nécessite pas de garde de référence métier.
+// En revanche, findByIdAndDelete n'est pas couvert par le plugin de scoping
+// pays (seuls find/findOne/findOneAndUpdate le sont) : on passe donc par
+// findById (scopé) puis .deleteOne() sur le document obtenu, pour qu'un
+// utilisateur ne puisse jamais supprimer la dépense d'un pays qui ne lui est
+// pas autorisé, même en devinant son identifiant (section 4.3).
+async function supprimer(id) {
+  const depense = await Depense.findById(id);
+  if (!depense) throw ApiError.notFound('Dépense introuvable');
+  await depense.deleteOne();
+  return { supprime: true };
+}
+
+module.exports = { listerCategories, creerCategorie, lister, creer, valider, supprimer };

@@ -10,5 +10,6 @@ router.post('/categories-depenses', requirePermission('depenses:creer'), ctrl.cr
 router.get('/depenses', requirePermission('depenses:voir'), scopePays('pays_id'), ctrl.lister);
 router.post('/depenses', requirePermission('depenses:creer'), scopePays('pays_id'), ctrl.creer);
 router.patch('/depenses/:id/valider', requirePermission('depenses:valider'), ctrl.valider);
+router.delete('/depenses/:id', requirePermission('depenses:supprimer'), ctrl.supprimer);
 
 module.exports = router;
