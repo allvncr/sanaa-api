@@ -18,8 +18,8 @@ const listerMoyensPaiement = asyncHandler(async (req, res) => {
   sendList(res, pays.moyens_paiement);
 });
 
-const listerRoles = asyncHandler(async (req, res) => sendList(res, await roleService.lister()));
-const creerRole = asyncHandler(async (req, res) => sendOne(res, await roleService.creer(req.body), 201));
+const listerRoles = asyncHandler(async (req, res) => sendList(res, await roleService.lister(req)));
+const creerRole = asyncHandler(async (req, res) => sendOne(res, await roleService.creer(req.body, req), 201));
 
 module.exports = {
   listerDevises,
