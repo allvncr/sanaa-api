@@ -7,10 +7,9 @@ const genererInterne = asyncHandler(async (req, res) => {
   sendOne(res, exp, 201);
 });
 
-// Pas de pays_id : l'export usine combine tous les pays d'un même jour
-// (retour V0.1 — voir export.service.js).
+// Retour V0.1 : l'export usine est généré par pays, comme l'export interne.
 const genererUsine = asyncHandler(async (req, res) => {
-  const exp = await service.genererExportUsine(req.query.date, req);
+  const exp = await service.genererExportUsine(req.query.pays_id, req.query.date, req.user.id);
   sendOne(res, exp, 201);
 });
 

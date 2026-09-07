@@ -57,7 +57,9 @@ async function commandesDuJour(filtre, date) {
 async function specificationLigne(ligne) {
   const produit = await Produit.findById(ligne.produit_id);
   const variante = produit ? produit.variantes.id(ligne.variante_id) : null;
-  const modele = produit ? produit.nom_zh : '';
+  // detail_variante (ex. "JAN" pour un modèle mensuel) est accolé au nom
+  // chinois du produit : sans lui l'usine ne sait pas quel mois fabriquer.
+  const modele = produit && produit.nom_zh ? produit.nom_zh + (ligne.detail_variante ? `-${ligne.detail_variante}` : '') : '';
   const couleur = variante ? variante.couleur_zh : '';
   const personnalisation = (ligne.personnalisation || []).map((p) => p.texte).filter(Boolean).join(', ');
   const police = (ligne.personnalisation || []).map((p) => p.police).find(Boolean) || '';
@@ -170,20 +172,16 @@ async function genererExportInterne(paysId, date, utilisateurId) {
 }
 
 /**
- * Export usine (retour V0.1) : l'usine fabrique pour tous les pays à la fois,
- * donc CE fichier combine les commandes de tous les pays d'un même jour en un
- * seul classeur — JJ-MM-AAAA(Usine).xlsx, sans code pays — plutôt qu'un
- * fichier par pays. Colonnes strictement limitées à la spécification produit
- * en chinois (section 7.1 : aucune donnée financière ou personnelle).
- * Réservé à la portée globale (super administrateur) puisqu'il mélange tous
- * les pays sans distinction.
+ * Export usine (retour V0.1) : un fichier par pays et par jour, comme l'export
+ * interne — pas de fichier combinant tous les pays. Colonnes strictement
+ * limitées à la spécification produit en chinois (section 7.1 : aucune donnée
+ * financière ou personnelle).
  */
-async function genererExportUsine(date, req) {
-  if (!req.user.porteeGlobale) {
-    throw ApiError.forbidden("Seul un utilisateur à portée globale peut générer l'export usine (il combine tous les pays)");
-  }
+async function genererExportUsine(paysId, date, utilisateurId) {
+  const pays = await Pays.findById(paysId);
+  if (!pays) throw ApiError.notFound('Pays introuvable');
 
-  const commandes = await commandesDuJour({}, date);
+  const commandes = await commandesDuJour({ pays_id: paysId }, date);
   const workbook = new ExcelJS.Workbook();
   const feuille = workbook.addWorksheet('Feuil1');
   feuille.columns = COLONNES_PRODUIT_ZH;
@@ -209,9 +207,9 @@ async function genererExportUsine(date, req) {
 
   appliquerPolicesCellules(feuille);
 
-  const nomFichier = buildUsineFileName({ date: date || new Date() });
+  const nomFichier = buildUsineFileName({ date: date || new Date(), pays });
   const sousDossier = buildExportSousDossier(date || new Date());
-  const version = await prochaineVersion({ pays_id: null, date_export: bornesJour(date).debut, type: 'usine' });
+  const version = await prochaineVersion({ pays_id: paysId, date_export: bornesJour(date).debut, type: 'usine' });
   const nomFichierVersionne = version > 1 ? nomFichier.replace('.xlsx', `-v${version}.xlsx`) : nomFichier;
   const cheminFichier = path.join(env.exportsDir, sousDossier, nomFichierVersionne);
 
@@ -219,13 +217,13 @@ async function genererExportUsine(date, req) {
   await workbook.xlsx.writeFile(cheminFichier);
 
   return ExportModel.create({
-    pays_id: null,
+    pays_id: paysId,
     date_export: bornesJour(date).debut,
     type: 'usine',
     version,
     nom_fichier: nomFichierVersionne,
     chemin_fichier: cheminFichier,
-    genere_par: req.user.id,
+    genere_par: utilisateurId,
   });
 }
 

@@ -12,6 +12,11 @@ const LigneCommandeSchema = new Schema(
     produit_id: { type: Schema.Types.ObjectId, ref: 'Produit', required: true },
     variante_id: { type: Schema.Types.ObjectId, required: true },
     couleur_choisie: { type: String },
+    // Précision de variante non couverte par le catalogue (ex. le mois pour
+    // COLLIER FLEUR DU MOIS & PRENOM, "cheville" pour un bracelet porté en
+    // pied) — affichée accolée au modèle dans les exports interne/usine pour
+    // que l'usine sache exactement quoi fabriquer (retour V0.1).
+    detail_variante: { type: String, trim: true },
     personnalisation: {
       type: [{ texte: String, police: String, position: Number }],
       default: [],
@@ -47,8 +52,8 @@ const CommandeSchema = new Schema(
     pays_id: { type: Schema.Types.ObjectId, ref: 'Pays', required: true, index: true },
     client_id: { type: Schema.Types.ObjectId, ref: 'Client', required: true, index: true },
     // Simplifié à la demande de SANAA (retour V0.1) : uniquement les deux canaux
-    // réellement utilisés, WhatsApp par défaut.
-    canal_vente: { type: String, enum: ['WhatsApp', 'Site web'], default: 'WhatsApp' },
+    // réellement utilisés, Site web par défaut (WhatsApp reste sélectionnable).
+    canal_vente: { type: String, enum: ['WhatsApp', 'Site web'], default: 'Site web' },
     campagne_id: { type: Schema.Types.ObjectId, ref: 'CampagneMarketing' },
 
     // Point 1, section 1. Retour V0.1 : la saisie rapide crée directement une

@@ -58,6 +58,7 @@ async function construireLigne(ligneInput, paysId) {
     produit_id: produit._id,
     variante_id: variante._id,
     couleur_choisie: ligneInput.couleur_choisie || variante.couleur,
+    detail_variante: ligneInput.detail_variante,
     personnalisation: ligneInput.personnalisation || [],
     quantite,
     prix_unitaire_applique: toDecimal128(prixUnitaire),

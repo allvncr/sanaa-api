@@ -6,10 +6,10 @@ const paysScopePlugin = require('../plugins/paysScopePlugin');
 // créée (section 3.8, 3.9, 7.3, 11.4).
 const ExportSchema = new Schema(
   {
-    // Optionnel (retour V0.1) : un export "usine" combine tous les pays à la
-    // fois (l'usine fabrique pour tout le monde) et n'a donc pas de pays_id —
-    // voir export.service.js.
-    pays_id: { type: Schema.Types.ObjectId, ref: 'Pays', index: true },
+    // Retour V0.1 : l'export usine est désormais généré par pays comme
+    // l'export interne (l'usine reçoit un bordereau par pays), pays_id est
+    // donc toujours renseigné.
+    pays_id: { type: Schema.Types.ObjectId, ref: 'Pays', required: true, index: true },
     date_export: { type: Date, required: true, index: true },
     type: { type: String, enum: ['interne', 'usine'], required: true },
     version: { type: Number, default: 1 },

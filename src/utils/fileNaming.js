@@ -36,12 +36,14 @@ function buildExportFileName({ date, pays }) {
 }
 
 /**
- * Export usine : JJ-MM-AAAA(Usine).xlsx — jamais de code pays, l'usine
- * fabriquant pour tous les pays à la fois (voir export.service.js).
+ * Export usine : JJ-MM-AAAA(Usine)[-CODEPAYS].xlsx — retour V0.1 : généré par
+ * pays comme l'export interne (l'usine reçoit un bordereau par pays, pas un
+ * fichier combiné), même règle de suffixe que buildExportFileName.
  */
-function buildUsineFileName({ date }) {
+function buildUsineFileName({ date, pays }) {
   const { jj, mm, aaaa } = dateComponents(date);
-  return `${jj}-${mm}-${aaaa}(Usine).xlsx`;
+  const suffixPays = pays.est_pays_historique_sans_suffixe ? '' : `-${pays.code}`;
+  return `${jj}-${mm}-${aaaa}(Usine)${suffixPays}.xlsx`;
 }
 
 module.exports = { buildExportFileName, buildUsineFileName, buildExportSousDossier, MOIS_FR };
