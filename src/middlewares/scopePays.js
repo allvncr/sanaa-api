@@ -20,8 +20,12 @@ function scopePays(...champs) {
     const valeursDemandees = [];
     for (const champ of listeChamps) {
       const valeur = req.query[champ] ?? req.params[champ] ?? req.body?.[champ];
-      if (valeur !== undefined) {
-        if (Array.isArray(valeur)) valeursDemandees.push(...valeur);
+      // Une chaîne vide (filtre "Tous" non renseigné côté frontend) équivaut à
+      // une absence de valeur, pas à une demande d'accès au pays "" — sans quoi
+      // un filtre laissé vide est refusé à tort (403) pour tout utilisateur non
+      // à portée globale.
+      if (valeur !== undefined && valeur !== '') {
+        if (Array.isArray(valeur)) valeursDemandees.push(...valeur.filter((v) => v !== ''));
         else valeursDemandees.push(valeur);
       }
     }

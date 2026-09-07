@@ -172,7 +172,10 @@ async function comparaisonPays({ periode, date, periode_debut, periode_fin, devi
 async function performanceProduits({ pays_id, periode, date, periode_debut, periode_fin }) {
   const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
   const filtre = { createdAt: { $gte: debut, $lte: fin } };
-  if (pays_id) filtre.pays_id = pays_id;
+  // Un $match d'agrégation n'est jamais casté par Mongoose : sans conversion
+  // explicite, comparer la chaîne pays_id de la query au champ ObjectId ne
+  // matcherait jamais rien.
+  if (pays_id) filtre.pays_id = new mongoose.Types.ObjectId(pays_id);
 
   const resultats = await Commande.aggregate([
     { $match: filtre },

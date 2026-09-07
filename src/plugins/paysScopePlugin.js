@@ -1,4 +1,9 @@
+const mongoose = require('mongoose');
 const { getCurrentUser } = require('../utils/requestContext');
+
+function versObjectId(valeur) {
+  return mongoose.Types.ObjectId.isValid(valeur) ? new mongoose.Types.ObjectId(valeur) : valeur;
+}
 
 /**
  * Plugin de schéma Mongoose — cloisonnement par pays (section 3.9, 4.3).
@@ -32,7 +37,12 @@ function paysScopePlugin(schema, options = {}) {
   schema.pre('aggregate', function preAggregate() {
     const user = getCurrentUser();
     if (!user || user.porteeGlobale) return;
-    this.pipeline().unshift({ $match: { [field]: { $in: user.paysAutorises || [] } } });
+    // Un pipeline d'agrégation n'est jamais casté par Mongoose (contrairement à
+    // find/findOne) : sans cette conversion explicite, comparer les identifiants
+    // pays (chaînes dans le contexte utilisateur) au champ ObjectId ne matcherait
+    // jamais rien, et un utilisateur à portée pays ne verrait aucune donnée.
+    const autorises = (user.paysAutorises || []).map(versObjectId);
+    this.pipeline().unshift({ $match: { [field]: { $in: autorises } } });
   });
 
   schema.pre('validate', function preValidate(next) {
