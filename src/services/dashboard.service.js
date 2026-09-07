@@ -1,11 +1,64 @@
-const mongoose = require('mongoose');
 const Commande = require('../models/Commande');
+const Client = require('../models/Client');
 const Depense = require('../models/Depense');
+const CategorieDepense = require('../models/CategorieDepense');
+const Produit = require('../models/Produit');
 const Pays = require('../models/Pays');
 const Devise = require('../models/Devise');
 const deviseService = require('./devise.service');
 const { toDecimal, sum } = require('../utils/money');
 const { resoudrePeriode } = require('../utils/periode');
+const { getCurrentUser } = require('../utils/requestContext');
+
+/**
+ * Pays sur lesquels agréger : le pays demandé s'il est précisé, sinon "tous
+ * les pays" (retour V0.1 — vue consolidée) restreint aux pays autorisés de
+ * l'utilisateur courant. Un appel API sans pays_id ne doit jamais renvoyer
+ * plus que ce que l'utilisateur est autorisé à voir, même si aucune requête
+ * Mongoose explicite sur `pays_id` ne serait filtrée ensuite par le plugin de
+ * scoping (celui-ci s'efface dès qu'un filtre pays_id explicite est déjà
+ * présent — ce qui est justement le cas ici, puisqu'on boucle pays par pays).
+ */
+async function paysCiblesPourAgregation(paysId) {
+  if (paysId) {
+    const pays = await Pays.findById(paysId);
+    if (!pays) throw new Error('Pays introuvable');
+    return [pays];
+  }
+  const utilisateur = getCurrentUser();
+  const filtre = { actif: true };
+  if (utilisateur && !utilisateur.porteeGlobale) {
+    filtre._id = { $in: utilisateur.paysAutorises || [] };
+  }
+  return Pays.find(filtre);
+}
+
+async function resoudreDeviseCible(deviseAffichage) {
+  const code = (deviseAffichage || require('../config/env').deviseReferenceGlobale).toUpperCase();
+  const devise = await Devise.findOne({ code });
+  if (!devise) throw new Error(`Devise d'affichage inconnue : ${code}`);
+  return devise;
+}
+
+// Un utilisateur "Tous les pays" mélange plusieurs devises locales : chaque
+// montant doit être converti au taux en vigueur à SA date de transaction
+// (jamais un taux unique global — section 2.5, 10). Mis en cache par paire de
+// devises et par jour pour limiter les allers-retours base de données.
+function creerCacheTaux() {
+  const cache = new Map();
+  return async function taux(deviseSourceId, deviseCibleId, date) {
+    const cle = `${deviseSourceId}|${deviseCibleId}|${new Date(date).toISOString().slice(0, 10)}`;
+    if (!cache.has(cle)) {
+      cache.set(cle, await deviseService.tauxApplicable(deviseSourceId, deviseCibleId, date));
+    }
+    return cache.get(cle);
+  };
+}
+
+function formaterDatePeriode(date, parMois) {
+  const iso = new Date(date).toISOString();
+  return parMois ? iso.slice(0, 7) : iso.slice(0, 10);
+}
 
 /**
  * Convertit et additionne une liste de montants datés vers une devise cible, en
@@ -119,14 +172,14 @@ async function kpis({ pays_id, periode, date, periode_debut, periode_fin }) {
 /**
  * Comparaison multi-pays (section 5.11, 19) : tableau juxtaposant les KPI de
  * chaque pays sur une période, avec conversion vers la devise d'affichage choisie
- * au taux applicable à la date de chaque transaction.
+ * au taux applicable à la date de chaque transaction. Chaque ligne porte aussi
+ * sa part du CA consolidé (retour V0.1) pour visualiser d'un coup d'œil le poids
+ * de chaque pays dans l'activité globale.
  */
 async function comparaisonPays({ periode, date, periode_debut, periode_fin, devise_affichage }) {
   const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
-  const paysListe = await Pays.find({ actif: true });
-  const codeCible = devise_affichage || require('../config/env').deviseReferenceGlobale;
-  const deviseCible = await Devise.findOne({ code: codeCible.toUpperCase() });
-  if (!deviseCible) throw new Error(`Devise d'affichage inconnue : ${codeCible}`);
+  const paysListe = await paysCiblesPourAgregation();
+  const deviseCible = await resoudreDeviseCible(devise_affichage);
 
   const lignes = [];
   const globalAccum = { ca: toDecimal(0), encaissements: toDecimal(0), depenses: toDecimal(0) };
@@ -156,6 +209,11 @@ async function comparaisonPays({ periode, date, periode_debut, periode_fin, devi
     });
   }
 
+  const caTotal = globalAccum.ca.gt(0) ? globalAccum.ca : toDecimal(1);
+  lignes.forEach((ligne) => {
+    ligne.ca_pct = Number(toDecimal(ligne.ca_converti).div(caTotal).times(100).toFixed(2));
+  });
+
   return {
     devise_affichage: deviseCible.code,
     periode: { debut, fin },
@@ -169,86 +227,122 @@ async function comparaisonPays({ periode, date, periode_debut, periode_fin, devi
   };
 }
 
-async function performanceProduits({ pays_id, periode, date, periode_debut, periode_fin }) {
+/**
+ * Meilleurs produits par chiffre d'affaires (retour V0.1). En mode "tous les
+ * pays", le CA de chaque ligne de commande est converti vers devise_affichage
+ * au taux en vigueur à la date de LA commande avant d'être cumulé — jamais un
+ * taux unique global.
+ */
+async function performanceProduits({ pays_id, periode, date, periode_debut, periode_fin, devise_affichage }) {
   const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
-  const filtre = { createdAt: { $gte: debut, $lte: fin } };
-  // Un $match d'agrégation n'est jamais casté par Mongoose : sans conversion
-  // explicite, comparer la chaîne pays_id de la query au champ ObjectId ne
-  // matcherait jamais rien.
-  if (pays_id) filtre.pays_id = new mongoose.Types.ObjectId(pays_id);
+  const paysListe = await paysCiblesPourAgregation(pays_id);
+  const paysIds = paysListe.map((p) => p._id);
+  const paysParId = new Map(paysListe.map((p) => [String(p._id), p]));
+  const deviseCible = pays_id ? null : await resoudreDeviseCible(devise_affichage);
+  const obtenirTaux = creerCacheTaux();
 
-  const resultats = await Commande.aggregate([
-    { $match: filtre },
+  const lignes = await Commande.aggregate([
+    { $match: { pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } } },
     { $unwind: '$lignes' },
-    {
-      $group: {
-        _id: { produit_id: '$lignes.produit_id' },
-        quantite_vendue: { $sum: '$lignes.quantite' },
-        chiffre_affaires: { $sum: { $toDouble: '$lignes.sous_total' } },
-      },
-    },
-    { $sort: { chiffre_affaires: -1 } },
-    { $limit: 20 },
-    {
-      $lookup: { from: 'produits', localField: '_id.produit_id', foreignField: '_id', as: 'produit' },
-    },
-    { $unwind: { path: '$produit', preserveNullAndEmptyArrays: true } },
     {
       $project: {
         _id: 0,
-        produit_id: '$_id.produit_id',
-        nom: '$produit.nom',
-        quantite_vendue: 1,
-        chiffre_affaires: { $round: ['$chiffre_affaires', 2] },
+        produit_id: '$lignes.produit_id',
+        quantite: '$lignes.quantite',
+        sous_total: '$lignes.sous_total',
+        pays_id: 1,
+        createdAt: 1,
       },
     },
   ]);
 
-  return resultats;
+  const parProduit = new Map();
+  for (const l of lignes) {
+    let montant = toDecimal(l.sous_total);
+    if (deviseCible) {
+      const pays = paysParId.get(String(l.pays_id));
+      const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, l.createdAt);
+      if (taux === null) continue; // pas de taux connu à cette date : ligne exclue
+      montant = montant.times(taux);
+    }
+    const cle = String(l.produit_id);
+    const entree = parProduit.get(cle) || { produit_id: l.produit_id, quantite_vendue: 0, chiffre_affaires: toDecimal(0) };
+    entree.quantite_vendue += l.quantite;
+    entree.chiffre_affaires = entree.chiffre_affaires.plus(montant);
+    parProduit.set(cle, entree);
+  }
+
+  const resultats = [...parProduit.values()].sort((a, b) => b.chiffre_affaires.minus(a.chiffre_affaires).toNumber());
+  const meilleurs = resultats.slice(0, 20);
+  const produits = await Produit.find({ _id: { $in: meilleurs.map((r) => r.produit_id) } }).select('nom').lean();
+  const nomParId = new Map(produits.map((p) => [String(p._id), p.nom]));
+
+  return meilleurs.map((r) => ({
+    produit_id: r.produit_id,
+    nom: nomParId.get(String(r.produit_id)) || null,
+    quantite_vendue: r.quantite_vendue,
+    chiffre_affaires: Number(r.chiffre_affaires.toFixed(2)),
+  }));
 }
 
 /**
  * Courbe d'évolution du CA sur la période (retour V0.1). Granularité
  * automatique : par jour si la période fait 62 jours ou moins, par mois
- * au-delà (ex. une année entière), pour rester lisible sur un graphique.
+ * au-delà (ex. une année entière), pour rester lisible sur un graphique. En
+ * mode "tous les pays", chaque commande est convertie vers devise_affichage
+ * au taux en vigueur à sa propre date avant d'être cumulée dans le bucket.
  */
-async function evolutionCA({ pays_id, periode, date, periode_debut, periode_fin }) {
-  if (!pays_id) throw new Error('pays_id requis');
+async function evolutionCA({ pays_id, periode, date, periode_debut, periode_fin, devise_affichage }) {
   const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
-  const pays = await Pays.findById(pays_id);
-  if (!pays) throw new Error('Pays introuvable');
-  const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
-
+  const paysListe = await paysCiblesPourAgregation(pays_id);
   const nombreJours = (fin.getTime() - debut.getTime()) / (24 * 60 * 60 * 1000);
   const parMois = nombreJours > 62;
-  const format = parMois ? '%Y-%m' : '%Y-%m-%d';
+  const deviseCible = pays_id ? null : await resoudreDeviseCible(devise_affichage);
+  const obtenirTaux = creerCacheTaux();
 
-  const resultats = await Commande.aggregate([
-    { $match: { pays_id: pays._id, createdAt: { $gte: debut, $lte: fin }, statut_commande: { $in: statutsInclus } } },
-    {
-      $group: {
-        _id: { $dateToString: { format, date: '$createdAt' } },
-        ca: { $sum: { $toDouble: '$total' } },
-        nombre_commandes: { $sum: 1 },
-      },
-    },
-    { $sort: { _id: 1 } },
-    { $project: { _id: 0, periode: '$_id', ca: { $round: ['$ca', 2] }, nombre_commandes: 1 } },
-  ]);
+  const points = new Map();
+  for (const pays of paysListe) {
+    const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+    const commandes = await Commande.find({
+      pays_id: pays._id,
+      createdAt: { $gte: debut, $lte: fin },
+      statut_commande: { $in: statutsInclus },
+    }).select('total createdAt').lean();
 
-  return { granularite: parMois ? 'mois' : 'jour', points: resultats };
+    for (const c of commandes) {
+      let montant = toDecimal(c.total);
+      if (deviseCible) {
+        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
+        if (taux === null) continue;
+        montant = montant.times(taux);
+      }
+      const cle = formaterDatePeriode(c.createdAt, parMois);
+      const entree = points.get(cle) || { ca: toDecimal(0), nombre_commandes: 0 };
+      entree.ca = entree.ca.plus(montant);
+      entree.nombre_commandes += 1;
+      points.set(cle, entree);
+    }
+  }
+
+  const resultats = [...points.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([periode2, v]) => ({ periode: periode2, ca: Number(v.ca.toFixed(2)), nombre_commandes: v.nombre_commandes }));
+
+  return { granularite: parMois ? 'mois' : 'jour', devise: deviseCible ? deviseCible.code : null, points: resultats };
 }
 
 /**
  * Répartition des commandes par statut de livraison sur la période (retour
  * V0.1) — sert le graphique "proportion reçue / livrée / en cours / retour".
+ * Simples décomptes, aucune conversion de devise nécessaire.
  */
 async function repartitionLivraison({ pays_id, periode, date, periode_debut, periode_fin }) {
-  if (!pays_id) throw new Error('pays_id requis');
   const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
+  const paysListe = await paysCiblesPourAgregation(pays_id);
+  const paysIds = paysListe.map((p) => p._id);
 
   const resultats = await Commande.aggregate([
-    { $match: { pays_id: new mongoose.Types.ObjectId(pays_id), createdAt: { $gte: debut, $lte: fin } } },
+    { $match: { pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } } },
     { $group: { _id: '$statut_livraison', nombre: { $sum: 1 } } },
   ]);
 
@@ -260,4 +354,131 @@ async function repartitionLivraison({ pays_id, periode, date, periode_debut, per
   }));
 }
 
-module.exports = { kpis, comparaisonPays, performanceProduits, evolutionCA, repartitionLivraison };
+/**
+ * Répartition des commandes par canal d'acquisition (Site web / WhatsApp) sur
+ * la période (retour V0.1) — aucune conversion de devise nécessaire.
+ */
+async function repartitionCanal({ pays_id, periode, date, periode_debut, periode_fin }) {
+  const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
+  const paysListe = await paysCiblesPourAgregation(pays_id);
+  const paysIds = paysListe.map((p) => p._id);
+
+  const resultats = await Commande.aggregate([
+    { $match: { pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } } },
+    { $group: { _id: '$canal_vente', nombre: { $sum: 1 } } },
+  ]);
+
+  const total = resultats.reduce((acc, r) => acc + r.nombre, 0) || 1;
+  return resultats.map((r) => ({
+    canal: r._id,
+    nombre: r.nombre,
+    pourcentage: Number(((r.nombre / total) * 100).toFixed(2)),
+  }));
+}
+
+/**
+ * Nouveaux clients sur la période, avec comparaison à la période précédente
+ * (retour V0.1) et une courbe d'évolution (même granularité que le CA) — pour
+ * suivre l'acquisition, pas seulement les ventes.
+ */
+async function nouveauxClients({ pays_id, periode, date, periode_debut, periode_fin }) {
+  const { debut, fin, precedent } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
+  const paysListe = await paysCiblesPourAgregation(pays_id);
+  const paysIds = paysListe.map((p) => p._id);
+  const nombreJours = (fin.getTime() - debut.getTime()) / (24 * 60 * 60 * 1000);
+  const parMois = nombreJours > 62;
+  const format = parMois ? '%Y-%m' : '%Y-%m-%d';
+
+  const [total, totalPrecedent, points] = await Promise.all([
+    Client.countDocuments({ pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } }),
+    precedent
+      ? Client.countDocuments({ pays_id: { $in: paysIds }, createdAt: { $gte: precedent.debut, $lte: precedent.fin } })
+      : Promise.resolve(null),
+    Client.aggregate([
+      { $match: { pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } } },
+      { $group: { _id: { $dateToString: { format, date: '$createdAt' } }, nombre: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+      { $project: { _id: 0, periode: '$_id', nombre: 1 } },
+    ]),
+  ]);
+
+  return { total, comparaison: totalPrecedent, granularite: parMois ? 'mois' : 'jour', points };
+}
+
+/**
+ * Analyse CA / Publicité / Dépenses (retour V0.1) : trois courbes sur les mêmes
+ * périodes pour visualiser d'un coup d'œil la relation entre l'effort publicitaire,
+ * les dépenses totales et le chiffre d'affaires généré. Les catégories de dépense
+ * "publicité" sont repérées par leur nom (elles sont librement renommables/
+ * ajoutables par SANAA — voir catalogue.service.js — donc pas d'ID en dur).
+ */
+async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, periode_fin, devise_affichage }) {
+  const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
+  const paysListe = await paysCiblesPourAgregation(pays_id);
+  const nombreJours = (fin.getTime() - debut.getTime()) / (24 * 60 * 60 * 1000);
+  const parMois = nombreJours > 62;
+  const deviseCible = pays_id ? null : await resoudreDeviseCible(devise_affichage);
+  const obtenirTaux = creerCacheTaux();
+
+  const categories = await CategorieDepense.find().select('nom').lean();
+  const idsPublicite = new Set(categories.filter((c) => /publicit/i.test(c.nom)).map((c) => String(c._id)));
+
+  const points = new Map();
+  function accumuler(cle, champ, montant) {
+    const entree = points.get(cle) || { ca: toDecimal(0), publicite: toDecimal(0), depenses: toDecimal(0) };
+    entree[champ] = entree[champ].plus(montant);
+    points.set(cle, entree);
+  }
+
+  for (const pays of paysListe) {
+    const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+    const [commandes, depenses] = await Promise.all([
+      Commande.find({ pays_id: pays._id, createdAt: { $gte: debut, $lte: fin }, statut_commande: { $in: statutsInclus } })
+        .select('total createdAt').lean(),
+      Depense.find({ pays_id: pays._id, date: { $gte: debut, $lte: fin } }).select('montant categorie_id date').lean(),
+    ]);
+
+    for (const c of commandes) {
+      let montant = toDecimal(c.total);
+      if (deviseCible) {
+        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
+        if (taux === null) continue;
+        montant = montant.times(taux);
+      }
+      accumuler(formaterDatePeriode(c.createdAt, parMois), 'ca', montant);
+    }
+    for (const d of depenses) {
+      let montant = toDecimal(d.montant);
+      if (deviseCible) {
+        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, d.date);
+        if (taux === null) continue;
+        montant = montant.times(taux);
+      }
+      const cle = formaterDatePeriode(d.date, parMois);
+      accumuler(cle, 'depenses', montant);
+      if (idsPublicite.has(String(d.categorie_id))) accumuler(cle, 'publicite', montant);
+    }
+  }
+
+  const resultats = [...points.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([periode2, v]) => ({
+      periode: periode2,
+      ca: Number(v.ca.toFixed(2)),
+      publicite: Number(v.publicite.toFixed(2)),
+      depenses: Number(v.depenses.toFixed(2)),
+    }));
+
+  return { granularite: parMois ? 'mois' : 'jour', devise: deviseCible ? deviseCible.code : null, points: resultats };
+}
+
+module.exports = {
+  kpis,
+  comparaisonPays,
+  performanceProduits,
+  evolutionCA,
+  repartitionLivraison,
+  repartitionCanal,
+  nouveauxClients,
+  analyseCaPubDepenses,
+};

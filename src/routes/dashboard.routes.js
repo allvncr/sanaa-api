@@ -19,5 +19,23 @@ router.get(
   scopePays('pays_id'),
   ctrl.repartitionLivraison
 );
+router.get(
+  '/repartition-canal',
+  requirePermission('dashboard:voir_pays'),
+  scopePays('pays_id'),
+  ctrl.repartitionCanal
+);
+router.get(
+  '/nouveaux-clients',
+  requirePermission('dashboard:voir_pays'),
+  scopePays('pays_id'),
+  ctrl.nouveauxClients
+);
+router.get(
+  '/analyse-ca-pub-depenses',
+  requirePermission('dashboard:voir_pays'),
+  scopePays('pays_id'),
+  ctrl.analyseCaPubDepenses
+);
 
 module.exports = router;

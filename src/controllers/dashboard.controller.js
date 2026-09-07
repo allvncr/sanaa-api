@@ -13,6 +13,13 @@ const evolutionCA = asyncHandler(async (req, res) => sendOne(res, await service.
 const repartitionLivraison = asyncHandler(async (req, res) =>
   sendList(res, await service.repartitionLivraison(req.query))
 );
+const repartitionCanal = asyncHandler(async (req, res) =>
+  sendList(res, await service.repartitionCanal(req.query))
+);
+const nouveauxClients = asyncHandler(async (req, res) => sendOne(res, await service.nouveauxClients(req.query)));
+const analyseCaPubDepenses = asyncHandler(async (req, res) =>
+  sendOne(res, await service.analyseCaPubDepenses(req.query))
+);
 
 const listerAlertes = asyncHandler(async (req, res) => sendList(res, await alerteService.lister(req.query)));
 const listerJournal = asyncHandler(async (req, res) => {
@@ -26,6 +33,9 @@ module.exports = {
   performanceProduits,
   evolutionCA,
   repartitionLivraison,
+  repartitionCanal,
+  nouveauxClients,
+  analyseCaPubDepenses,
   listerAlertes,
   listerJournal,
 };

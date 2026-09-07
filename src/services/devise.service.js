@@ -38,8 +38,18 @@ async function tauxApplicable(deviseSourceId, deviseCibleId, date) {
     devise_cible_id: deviseCibleId,
     date_effet: { $lte: date || new Date() },
   }).sort({ date_effet: -1 });
-  if (!taux) return null;
-  return toDecimal(taux.taux);
+  if (taux) return toDecimal(taux.taux);
+
+  // Aucun taux direct : on retombe sur le taux inverse s'il existe (ex. seul
+  // USD->XOF est saisi, on en déduit XOF->USD = 1 / taux) plutôt que d'exiger
+  // que chaque paire de devises soit saisie dans les deux sens.
+  const inverse = await TauxChange.findOne({
+    devise_source_id: deviseCibleId,
+    devise_cible_id: deviseSourceId,
+    date_effet: { $lte: date || new Date() },
+  }).sort({ date_effet: -1 });
+  if (!inverse) return null;
+  return toDecimal(1).div(toDecimal(inverse.taux));
 }
 
 module.exports = { lister, creer, listerTaux, ajouterTaux, tauxApplicable };
