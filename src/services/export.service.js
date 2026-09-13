@@ -57,19 +57,25 @@ async function commandesDuJour(filtre, date) {
 async function specificationLigne(ligne) {
   const produit = await Produit.findById(ligne.produit_id);
   const variante = produit ? produit.variantes.id(ligne.variante_id) : null;
+  const fabricationLocale = !!(produit && produit.fabrication_locale);
   // detail_variante (ex. "JAN" pour un modèle mensuel) est accolé au nom
   // chinois du produit : sans lui l'usine ne sait pas quel mois fabriquer.
-  const modele = produit && produit.nom_zh ? produit.nom_zh + (ligne.detail_variante ? `-${ligne.detail_variante}` : '') : '';
-  const couleur = variante ? variante.couleur_zh : '';
+  const modeleZh = produit && produit.nom_zh ? produit.nom_zh + (ligne.detail_variante ? `-${ligne.detail_variante}` : '') : '';
+  const couleurZh = variante ? variante.couleur_zh : '';
   const personnalisation = (ligne.personnalisation || []).map((p) => p.texte).filter(Boolean).join(', ');
   const police = (ligne.personnalisation || []).map((p) => p.police).find(Boolean) || '';
+  // Un article de fabrication locale (déjà en stock, juste gravé sur place)
+  // n'a jamais de traduction chinoise : ce n'est pas un oubli à signaler à
+  // l'usine (qui ne le voit d'ailleurs jamais, voir genererExportUsine), donc
+  // on retombe sur le nom français plutôt que sur le fond orange d'alerte.
   return {
-    modele: modele || '',
-    modeleManquant: !modele,
-    couleur: couleur || ligne.couleur_choisie || '',
-    couleurManquante: !couleur,
+    modele: modeleZh || (fabricationLocale && produit ? produit.nom : ''),
+    modeleManquant: !modeleZh && !fabricationLocale,
+    couleur: couleurZh || ligne.couleur_choisie || '',
+    couleurManquante: !couleurZh && !fabricationLocale,
     personnalisation,
     police,
+    fabricationLocale,
   };
 }
 
@@ -190,8 +196,11 @@ async function genererExportUsine(paysId, date, utilisateurId) {
   let numeroLigne = 0;
   for (const commande of commandes) {
     for (const ligne of commande.lignes) {
-      numeroLigne += 1;
       const spec = await specificationLigne(ligne);
+      // Un article de fabrication locale (déjà en stock, gravé sur place)
+      // n'est jamais fabriqué par l'usine : elle n'a pas à en entendre parler.
+      if (spec.fabricationLocale) continue;
+      numeroLigne += 1;
       const ligneExcel = feuille.addRow({
         numero_ligne: numeroLigne,
         personnalisation: spec.personnalisation,

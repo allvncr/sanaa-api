@@ -38,6 +38,12 @@ const ProduitSchema = new Schema(
     // dans les exports usine, l'usine ne travaillant qu'en chinois. Saisi à la
     // création du produit, à côté du nom français.
     nom_zh: { type: String, trim: true },
+    // Retour V0.1 : certains articles (déjà en stock, juste gravés sur place)
+    // ne sont jamais fabriqués par l'usine chinoise — ils n'ont donc pas de
+    // nom_zh et ne doivent jamais apparaître dans l'export usine, sans pour
+    // autant être signalés comme une traduction manquante (voir
+    // export.service.js : specificationLigne / genererExportUsine).
+    fabrication_locale: { type: Boolean, default: false },
     reference_sku: { type: String, unique: true, sparse: true, trim: true },
     nb_prenoms_max: { type: Number, min: 0, default: 1 },
     options_personnalisation: { type: Schema.Types.Mixed, default: {} },
