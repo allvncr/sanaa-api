@@ -5,7 +5,14 @@ const service = require('../services/commande.service');
 const lister = asyncHandler(async (req, res) => sendList(res, await service.lister(req.query)));
 const obtenir = asyncHandler(async (req, res) => sendOne(res, await service.obtenir(req.params.id)));
 const creer = asyncHandler(async (req, res) => sendOne(res, await service.creer(req.body, req), 201));
-const modifier = asyncHandler(async (req, res) => sendOne(res, await service.modifier(req.params.id, req.body)));
+const modifier = asyncHandler(async (req, res) => sendOne(res, await service.modifier(req.params.id, req.body, req)));
+const supprimer = asyncHandler(async (req, res) =>
+  sendOne(
+    res,
+    await service.supprimer(req.params.id, { confirmerPaiements: req.query.confirmer_paiements === 'true' }, req)
+  )
+);
+const historique = asyncHandler(async (req, res) => sendOne(res, await service.historique(req.params.id)));
 
 const changerStatutCommande = asyncHandler(async (req, res) =>
   sendOne(res, await service.changerStatutCommande(req.params.id, req.body.statut, req))
@@ -31,6 +38,8 @@ module.exports = {
   obtenir,
   creer,
   modifier,
+  supprimer,
+  historique,
   changerStatutCommande,
   changerStatutFabrication,
   changerStatutLivraison,

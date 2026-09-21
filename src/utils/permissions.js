@@ -6,7 +6,7 @@ const PERMISSIONS = {
   utilisateurs: ['voir', 'creer', 'modifier', 'desactiver', 'attribuer_pays'],
   catalogue: ['voir', 'creer', 'modifier', 'supprimer', 'desactiver', 'definir_prix_pays'],
   clients: ['voir', 'creer', 'modifier'],
-  commandes: ['voir', 'creer', 'modifier', 'modifier_prix_manuellement', 'changer_statut', 'annuler'],
+  commandes: ['voir', 'creer', 'modifier', 'modifier_prix_manuellement', 'changer_statut', 'annuler', 'supprimer'],
   paiements: ['voir', 'enregistrer', 'annuler'],
   stock: ['voir', 'ajuster', 'transferer'],
   fournisseurs: ['voir', 'gerer'],

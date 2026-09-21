@@ -8,6 +8,8 @@ router.get('/', requirePermission('commandes:voir'), scopePays('pays_id'), ctrl.
 router.get('/:id', requirePermission('commandes:voir'), ctrl.obtenir);
 router.post('/', requirePermission('commandes:creer'), scopePays('pays_id'), ctrl.creer);
 router.put('/:id', requirePermission('commandes:modifier'), ctrl.modifier);
+router.delete('/:id', requirePermission('commandes:supprimer'), ctrl.supprimer);
+router.get('/:id/historique', requirePermission('commandes:voir'), ctrl.historique);
 
 router.patch('/:id/statut-commande', requirePermission('commandes:changer_statut'), ctrl.changerStatutCommande);
 router.patch('/:id/statut-fabrication', requirePermission('commandes:changer_statut'), ctrl.changerStatutFabrication);

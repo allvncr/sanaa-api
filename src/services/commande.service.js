@@ -5,6 +5,9 @@ const StockMouvement = require('../models/StockMouvement');
 const ApiError = require('../utils/ApiError');
 const { sum, toDecimal, toDecimal128, multiply } = require('../utils/money');
 const withTransaction = require('../utils/withTransaction');
+const Client = require('../models/Client');
+const JournalActivite = require('../models/JournalActivite');
+const { construireEvenement, construireEvenementClient } = require('../utils/commandeHistorique');
 const clientService = require('./client.service');
 
 function mouvementsReservation(commande, utilisateurId) {
@@ -167,11 +170,13 @@ async function lister({ pays_id, statut, date_de, date_a, client_id } = {}) {
     if (date_de) filtre.createdAt.$gte = new Date(date_de);
     if (date_a) filtre.createdAt.$lte = new Date(date_a);
   }
-  return Commande.find(filtre).populate('client_id pays_id').sort({ createdAt: -1 });
+  return Commande.find(filtre).populate('client_id pays_id').populate('cree_par', 'nom').sort({ createdAt: -1 });
 }
 
 async function obtenir(id) {
-  const commande = await Commande.findById(id).populate('client_id pays_id campagne_id');
+  const commande = await Commande.findById(id).populate('client_id pays_id campagne_id')
+    .populate('cree_par', 'nom')
+    .populate('lignes.produit_id', 'nom nom_zh');
   if (!commande) throw ApiError.notFound('Commande introuvable');
   return avecResteAPayer(commande);
 }
@@ -183,11 +188,301 @@ function avecResteAPayer(commande) {
   return obj;
 }
 
-async function modifier(id, data) {
-  const { lignes, paiements, statut_commande, statut_fabrication, statut_livraison, total, ...champsModifiables } = data;
-  const commande = await Commande.findByIdAndUpdate(id, champsModifiables, { new: true, runValidators: true });
+/**
+ * Ajuste la réservation de stock d'une commande Confirmée après une modification
+ * de ses lignes : le journal de stock étant append-only, on n'édite jamais les
+ * mouvements existants — on ajoute la différence (quantité en plus = nouvelle
+ * réservation, quantité en moins = libération).
+ */
+function mouvementsAjustement(commande, anciennesLignes, utilisateurId, motif) {
+  const cle = (l) => `${l.produit_id}|${l.variante_id}`;
+  const deltas = new Map();
+  for (const l of anciennesLignes) {
+    deltas.set(cle(l), { produit_id: l.produit_id, variante_id: l.variante_id, delta: -l.quantite });
+  }
+  for (const l of commande.lignes) {
+    const entree = deltas.get(cle(l)) || { produit_id: l.produit_id, variante_id: l.variante_id, delta: 0 };
+    entree.delta += l.quantite;
+    deltas.set(cle(l), entree);
+  }
+  return [...deltas.values()]
+    .filter((d) => d.delta !== 0)
+    .map((d) => ({
+      produit_id: d.produit_id,
+      variante_id: d.variante_id,
+      pays_id: commande.pays_id,
+      type: 'reservation',
+      quantite: -d.delta,
+      reference_commande_id: commande._id,
+      commentaire: `${motif} ${commande.numero}`,
+      saisi_par: utilisateurId,
+    }));
+}
+
+/**
+ * Reconstruit les lignes après édition : une ligne conservée (même _id, même
+ * variante) garde son prix figé à la création ; une ligne nouvelle ou dont le
+ * produit/la variante a changé reprend le prix catalogue actif du pays. Aucun
+ * prix n'est jamais saisi à la main (les écarts se traduisent par la réduction).
+ */
+async function reconstruireLignes(lignesInput, commande) {
+  const existantes = new Map(commande.lignes.map((l) => [String(l._id), l]));
+  const lignes = [];
+  for (const input of lignesInput) {
+    const existante = input._id ? existantes.get(String(input._id)) : null;
+    const memeVariante =
+      existante &&
+      String(existante.produit_id) === String(input.produit_id) &&
+      String(existante.variante_id) === String(input.variante_id);
+
+    if (memeVariante) {
+      const quantite = input.quantite || 1;
+      const prix = toDecimal(existante.prix_unitaire_applique);
+      lignes.push({
+        _id: existante._id,
+        produit_id: existante.produit_id,
+        variante_id: existante.variante_id,
+        couleur_choisie: input.couleur_choisie || existante.couleur_choisie,
+        detail_variante: input.detail_variante || undefined,
+        personnalisation: (input.personnalisation || []).map((p, i) => ({ ...p, position: i })),
+        quantite,
+        prix_unitaire_applique: existante.prix_unitaire_applique,
+        devise_id: existante.devise_id,
+        sous_total: toDecimal128(multiply(prix, quantite)),
+      });
+    } else {
+      const ligne = await construireLigne(input, commande.pays_id);
+      ligne.personnalisation = ligne.personnalisation.map((p, i) => ({ ...p, position: i }));
+      lignes.push(ligne);
+    }
+  }
+  return lignes;
+}
+
+/**
+ * Modification des détails d'une commande depuis sa fiche : client (nom, adresse,
+ * téléphone), canal, commentaires, réduction et lignes (produit, variante,
+ * quantité, précision, personnalisation). Statuts et paiements gardent leurs
+ * flux dédiés. Toute modification est tracée par le journal d'activité.
+ */
+async function modifier(id, data, req) {
+  const commande = await Commande.findById(id);
   if (!commande) throw ApiError.notFound('Commande introuvable');
-  return commande;
+
+  const anciennesLignes = commande.lignes.map((l) => ({
+    produit_id: l.produit_id,
+    variante_id: l.variante_id,
+    quantite: l.quantite,
+  }));
+  let lignesModifiees = false;
+
+  if (data.lignes !== undefined) {
+    if (['Annulee', 'Refusee'].includes(commande.statut_commande)) {
+      throw ApiError.conflict('Les produits d\'une commande annulée ou refusée ne peuvent plus être modifiés');
+    }
+    if (!Array.isArray(data.lignes) || data.lignes.length === 0) {
+      throw ApiError.badRequest('Une commande doit contenir au moins une ligne');
+    }
+    commande.lignes = await reconstruireLignes(data.lignes, commande);
+    commande.total = toDecimal128(sum(commande.lignes.map((l) => l.sous_total)));
+    lignesModifiees = true;
+  }
+
+  if (data.reduction !== undefined) {
+    const reduction = toDecimal(data.reduction || 0);
+    if (reduction.lt(0)) throw ApiError.badRequest('La réduction ne peut pas être négative');
+    commande.reduction = toDecimal128(reduction);
+  }
+  if (toDecimal(commande.reduction || 0).gt(toDecimal(commande.total))) {
+    throw ApiError.badRequest('La réduction ne peut pas dépasser le total de la commande');
+  }
+
+  if (data.canal_vente !== undefined) commande.canal_vente = data.canal_vente;
+  if (data.commentaires !== undefined) commande.commentaires = data.commentaires;
+
+  if (data.client) {
+    const { nom, adresse, telephone_whatsapp } = data.client;
+    const actuel = await Client.findById(commande.client_id);
+    const nouveauTel = telephone_whatsapp ? String(telephone_whatsapp).trim() : '';
+    if (nouveauTel && (!actuel || nouveauTel !== (actuel.telephone_whatsapp || ''))) {
+      // Autre numéro = autre client : retrouvé (ou créé) par téléphone dans le pays.
+      const client = await clientService.trouverOuCreer({
+        pays_id: commande.pays_id,
+        telephone_whatsapp: nouveauTel,
+        nom,
+        adresse,
+      });
+      commande.client_id = client._id;
+    } else if (actuel) {
+      if (nom !== undefined) actuel.nom = nom;
+      if (adresse !== undefined) actuel.adresse = adresse;
+      if (actuel.isModified()) await actuel.save();
+    }
+  }
+
+  await withTransaction(async (session) => {
+    if (lignesModifiees && commande.statut_commande === 'Confirmee') {
+      const mouvements = mouvementsAjustement(
+        commande,
+        anciennesLignes,
+        req && req.user && req.user.id,
+        'Modification de la commande'
+      );
+      if (mouvements.length) await StockMouvement.create(mouvements, { session, ordered: true });
+    }
+    await commande.save({ session });
+  });
+
+  return obtenir(id);
+}
+
+/**
+ * Suppression définitive d'une commande, réservée à `commandes:supprimer`.
+ * - le stock réservé est libéré par des mouvements compensatoires (journal de
+ *   stock append-only, jamais de suppression de mouvements) ;
+ * - une commande avec paiements enregistrés exige une confirmation explicite ;
+ * - l'instantané complet de la commande est conservé dans le journal
+ *   d'activité (entrée « suppression » avec l'auteur), car la suppression
+ *   d'instance n'est pas interceptée par activityLogPlugin.
+ */
+async function supprimer(id, { confirmerPaiements = false } = {}, req) {
+  const commande = await Commande.findById(id);
+  if (!commande) throw ApiError.notFound('Commande introuvable');
+
+  const paiementsActifs = commande.paiements.filter((p) => !p.annule);
+  if (paiementsActifs.length > 0 && !confirmerPaiements) {
+    const montantTotal = sum(paiementsActifs.map((p) => p.montant)).toFixed(2);
+    throw ApiError.conflict(
+      `Cette commande contient ${paiementsActifs.length} paiement(s) (${montantTotal}) : confirmez pour la supprimer avec ses paiements`
+    );
+  }
+
+  const reserves = await StockMouvement.aggregate([
+    { $match: { reference_commande_id: commande._id, type: 'reservation' } },
+    {
+      $group: {
+        _id: { produit_id: '$produit_id', variante_id: '$variante_id' },
+        net: { $sum: '$quantite' },
+      },
+    },
+  ]);
+
+  await withTransaction(async (session) => {
+    const liberations = reserves
+      .filter((r) => r.net !== 0)
+      .map((r) => ({
+        produit_id: r._id.produit_id,
+        variante_id: r._id.variante_id,
+        pays_id: commande.pays_id,
+        type: 'reservation',
+        quantite: -r.net,
+        reference_commande_id: commande._id,
+        commentaire: `Libération suite à la suppression de la commande ${commande.numero}`,
+        saisi_par: req && req.user && req.user.id,
+      }));
+    if (liberations.length) await StockMouvement.create(liberations, { session, ordered: true });
+
+    // Écrit avant la suppression et dans la même transaction : pas de suppression sans trace.
+    await JournalActivite.create(
+      [
+        {
+          utilisateur_id: req && req.user && req.user.id,
+          action: 'suppression',
+          entite: 'Commande',
+          entite_id: commande._id,
+          avant: commande.toObject(),
+          pays_id: commande.pays_id,
+          date: new Date(),
+        },
+      ],
+      { session }
+    );
+    await commande.deleteOne({ session });
+  });
+
+  return { _id: commande._id, numero: commande.numero };
+}
+
+/**
+ * « Qui a fait quoi, quand » sur une commande : évènements du journal d'activité
+ * (création, modifications, statuts, paiements) avec l'auteur et le détail des
+ * champs changés, du plus récent au plus ancien.
+ */
+async function historique(id) {
+  const commande = await Commande.findById(id).select('numero cree_par createdAt pays_id client_id').populate('cree_par', 'nom');
+  if (!commande) throw ApiError.notFound('Commande introuvable');
+  const commandeClientId = commande.client_id;
+
+  const entrees = await JournalActivite.find({ entite: 'Commande', entite_id: commande._id })
+    .populate('utilisateur_id', 'nom')
+    .sort({ date: -1 })
+    .lean();
+
+  // Résolution unique des libellés référencés par les instantanés (produits, clients).
+  const produitIds = new Set();
+  const clientIds = new Set([String(commandeClientId)]);
+  for (const e of entrees) {
+    for (const snap of [e.avant, e.apres]) {
+      if (!snap) continue;
+      if (snap.client_id) clientIds.add(String(snap.client_id));
+      (snap.lignes || []).forEach((l) => l.produit_id && produitIds.add(String(l.produit_id)));
+    }
+  }
+  const [produits, clients] = await Promise.all([
+    Produit.find({ _id: { $in: [...produitIds] } }).select('nom').lean(),
+    Client.find({ _id: { $in: [...clientIds] } }).select('nom telephone_whatsapp').lean(),
+  ]);
+  const contexte = {
+    produitsParId: new Map(produits.map((p) => [String(p._id), p])),
+    clientsParId: new Map(clients.map((c) => [String(c._id), c])),
+  };
+
+  const evenements = entrees.map((e) => construireEvenement(e, contexte)).filter(Boolean);
+
+  // Les informations client (nom, adresse, téléphone) vivent sur le client : leurs
+  // modifications faites par un utilisateur sont rattachées à la trace de la commande.
+  const entreesClient = await JournalActivite.find({
+    entite: 'Client',
+    entite_id: { $in: [...clientIds] },
+    action: 'modification',
+    utilisateur_id: { $ne: null },
+  })
+    .populate('utilisateur_id', 'nom')
+    .sort({ date: -1 })
+    .lean();
+  entreesClient.forEach((e) => {
+    const evenement = construireEvenementClient(e);
+    if (evenement) evenements.push(evenement);
+  });
+  evenements.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Commandes antérieures au journal : on retombe sur cree_par/createdAt.
+  const creation = evenements.find((e) => e.action === 'creation');
+  const createur = creation && creation.utilisateur
+    ? creation.utilisateur
+    : commande.cree_par
+      ? { _id: commande.cree_par._id, nom: commande.cree_par.nom }
+      : null;
+  if (!creation) {
+    evenements.push({
+      _id: `creation-${commande._id}`,
+      action: 'creation',
+      date: commande.createdAt,
+      utilisateur: createur,
+      resume: 'Commande créée',
+      changements: [],
+    });
+  } else if (!creation.utilisateur && createur) {
+    creation.utilisateur = createur;
+  }
+
+  const derniere = evenements.find((e) => e.action === 'modification');
+  return {
+    cree_par: createur,
+    cree_le: creation ? creation.date : commande.createdAt,
+    derniere_modification: derniere ? { utilisateur: derniere.utilisateur, date: derniere.date } : null,
+    evenements,
+  };
 }
 
 const TRANSITIONS_VALIDES = {
@@ -356,6 +651,8 @@ module.exports = {
   lister,
   obtenir,
   modifier,
+  supprimer,
+  historique,
   changerStatutCommande,
   changerStatutFabrication,
   changerStatutLivraison,
