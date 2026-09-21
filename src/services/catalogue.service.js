@@ -168,6 +168,75 @@ async function definirPrixPays(varianteId, paysId, data) {
 }
 
 /**
+ * Enregistrement groupé des prix d'un pays (grille "Prix par pays") : chaque
+ * entrée {variante_id, prix} ajoute un nouveau prix actif daté de maintenant,
+ * exactement comme definirPrixPays, mais en un seul aller-retour et avec une
+ * seule écriture par produit. Les prix identiques au prix actif courant sont
+ * ignorés ; la devise est reprise du dernier prix connu du pays pour la variante
+ * (à défaut, de la devise locale du pays). Tout est validé avant la moindre
+ * écriture : une entrée invalide fait échouer le lot entier.
+ */
+async function definirPrixPaysEnLot(paysId, prix) {
+  if (!Array.isArray(prix) || prix.length === 0) {
+    throw ApiError.badRequest('Aucun prix à enregistrer');
+  }
+  const pays = await Pays.findById(paysId);
+  if (!pays) throw ApiError.notFound('Pays introuvable');
+
+  const parVariante = new Map();
+  for (const entree of prix) {
+    const valeur = Number(entree && entree.prix);
+    if (!entree || !entree.variante_id || !Number.isFinite(valeur) || valeur < 0) {
+      throw ApiError.badRequest('Chaque entrée doit contenir une variante et un prix positif');
+    }
+    parVariante.set(String(entree.variante_id), valeur);
+  }
+
+  const produits = await Produit.find({ 'variantes._id': { $in: [...parVariante.keys()] } });
+  const trouvees = new Set();
+  const maintenant = new Date();
+  let modifies = 0;
+  let inchanges = 0;
+  const aSauver = new Set();
+
+  for (const produit of produits) {
+    for (const variante of produit.variantes) {
+      const cle = String(variante._id);
+      if (!parVariante.has(cle)) continue;
+      trouvees.add(cle);
+      const valeur = parVariante.get(cle);
+
+      const historique = variante.prix_pays
+        .filter((p) => String(p.pays_id) === String(paysId))
+        .sort((a, b) => b.date_debut_validite - a.date_debut_validite);
+      const courant = historique[0];
+      if (courant && courant.actif && Number(courant.prix.toString()) === valeur) {
+        inchanges += 1;
+        continue;
+      }
+
+      variante.prix_pays.push({
+        pays_id: paysId,
+        prix: valeur,
+        devise_id: (courant && courant.devise_id) || pays.devise_locale_id,
+        actif: true,
+        date_debut_validite: maintenant,
+      });
+      aSauver.add(produit);
+      modifies += 1;
+    }
+  }
+
+  const introuvables = [...parVariante.keys()].filter((id) => !trouvees.has(id));
+  if (introuvables.length > 0) {
+    throw ApiError.notFound(`Variante(s) introuvable(s) : ${introuvables.length}`);
+  }
+
+  for (const produit of aSauver) await produit.save();
+  return { modifies, inchanges };
+}
+
+/**
  * Initialise les prix d'un pays à partir du catalogue global (section 5.4,
  * "hériter-catalogue" — principe d'héritage puis personnalisation, section 5 du
  * cahier de cadrage). Copie, pour chaque variante n'ayant pas encore de prix pour
@@ -219,5 +288,6 @@ module.exports = {
   supprimerVariante,
   prixEffectif,
   definirPrixPays,
+  definirPrixPaysEnLot,
   heriterCatalogue,
 };

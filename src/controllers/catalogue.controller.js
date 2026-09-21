@@ -35,6 +35,10 @@ const definirPrixPays = asyncHandler(async (req, res) =>
   sendOne(res, await service.definirPrixPays(req.params.id, req.params.pays_id, req.body))
 );
 
+const definirPrixPaysEnLot = asyncHandler(async (req, res) =>
+  sendOne(res, await service.definirPrixPaysEnLot(req.params.pays_id, req.body.prix))
+);
+
 module.exports = {
   listerCategories,
   creerCategorie,
@@ -50,4 +54,5 @@ module.exports = {
   supprimerVariante,
   prixEffectif,
   definirPrixPays,
+  definirPrixPaysEnLot,
 };

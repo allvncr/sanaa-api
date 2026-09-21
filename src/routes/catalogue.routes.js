@@ -18,6 +18,7 @@ router.post('/produits/:id/variantes', requirePermission('catalogue:modifier'), 
 router.put('/produits/:id/variantes/:varianteId', requirePermission('catalogue:modifier'), ctrl.modifierVariante);
 router.delete('/produits/:id/variantes/:varianteId', requirePermission('catalogue:supprimer'), ctrl.supprimerVariante);
 
+router.put('/prix-lot/:pays_id', requirePermission('catalogue:definir_prix_pays'), ctrl.definirPrixPaysEnLot);
 router.put('/variantes/:id/prix/:pays_id', requirePermission('catalogue:definir_prix_pays'), ctrl.definirPrixPays);
 
 module.exports = router;
