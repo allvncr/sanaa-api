@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Commande = require('../models/Commande');
 const Produit = require('../models/Produit');
 const Pays = require('../models/Pays');
@@ -103,6 +104,10 @@ async function creer(data, req) {
     throw ApiError.badRequest('Une commande doit contenir au moins une ligne');
   }
 
+  if (data.avance && toDecimal(data.avance.montant || 0).gt(0) && !String(data.avance.moyen_paiement || '').trim()) {
+    throw ApiError.badRequest("Indiquez le moyen de paiement de l'avance (Wave, Orange Money, Espèces…)");
+  }
+
   const clientId = await resoudreClient(data);
 
   const lignes = [];
@@ -160,17 +165,61 @@ async function creer(data, req) {
   });
 }
 
-async function lister({ pays_id, statut, date_de, date_a, client_id } = {}) {
+const echapperRegex = (texte) => texte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Liste des commandes. `q` cherche dans le numéro, le nom/téléphone du client et
+ * les prénoms gravés (pour retrouver une commande déjà saisie) ; `cree_par`
+ * filtre sur l'utilisateur qui a saisi la commande.
+ */
+async function lister({ pays_id, statut, date_de, date_a, client_id, q, cree_par } = {}) {
   const filtre = {};
   if (pays_id) filtre.pays_id = pays_id;
   if (statut) filtre.statut_commande = statut;
   if (client_id) filtre.client_id = client_id;
+  if (cree_par) filtre.cree_par = cree_par;
   if (date_de || date_a) {
     filtre.createdAt = {};
     if (date_de) filtre.createdAt.$gte = new Date(date_de);
-    if (date_a) filtre.createdAt.$lte = new Date(date_a);
+    if (date_a) {
+      const fin = new Date(date_a);
+      // Une date seule (yyyy-MM-dd) désigne la journée entière : la fin est incluse.
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(date_a))) fin.setUTCHours(23, 59, 59, 999);
+      filtre.createdAt.$lte = fin;
+    }
   }
+
+  const recherche = q && String(q).trim();
+  if (recherche) {
+    const regex = new RegExp(echapperRegex(recherche), 'i');
+    const clients = await Client.find({
+      ...(pays_id ? { pays_id } : {}),
+      $or: [{ nom: regex }, { telephone_whatsapp: regex }],
+    }).select('_id');
+    filtre.$or = [
+      { numero: regex },
+      { client_id: { $in: clients.map((c) => c._id) } },
+      { 'lignes.personnalisation.texte': regex },
+    ];
+  }
+
   return Commande.find(filtre).populate('client_id pays_id').populate('cree_par', 'nom').sort({ createdAt: -1 });
+}
+
+/**
+ * Utilisateurs ayant saisi au moins une commande (dans le périmètre visible),
+ * pour alimenter le filtre « Saisi par » sans exiger la permission utilisateurs:voir.
+ */
+async function createurs({ pays_id } = {}) {
+  const Utilisateur = require('../models/Utilisateur');
+  const match = { cree_par: { $ne: null } };
+  if (pays_id) match.pays_id = new mongoose.Types.ObjectId(pays_id);
+  const groupes = await Commande.aggregate([{ $match: match }, { $group: { _id: '$cree_par', total: { $sum: 1 } } }]);
+  const utilisateurs = await Utilisateur.find({ _id: { $in: groupes.map((g) => g._id) } }).select('nom');
+  const totaux = new Map(groupes.map((g) => [String(g._id), g.total]));
+  return utilisateurs
+    .map((u) => ({ _id: u._id, nom: u.nom, total: totaux.get(String(u._id)) }))
+    .sort((a, b) => a.nom.localeCompare(b.nom));
 }
 
 async function obtenir(id) {
@@ -650,6 +699,7 @@ module.exports = {
   creer,
   lister,
   obtenir,
+  createurs,
   modifier,
   supprimer,
   historique,

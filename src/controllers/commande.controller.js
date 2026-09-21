@@ -3,7 +3,8 @@ const { sendList, sendOne } = require('../utils/apiResponse');
 const service = require('../services/commande.service');
 
 const lister = asyncHandler(async (req, res) => sendList(res, await service.lister(req.query)));
-const obtenir = asyncHandler(async (req, res) => sendOne(res, await service.obtenir(req.params.id)));
+const createurs = asyncHandler(async (req, res) => sendList(res, await service.createurs(req.query)));
+const obtenir =asyncHandler(async (req, res) => sendOne(res, await service.obtenir(req.params.id)));
 const creer = asyncHandler(async (req, res) => sendOne(res, await service.creer(req.body, req), 201));
 const modifier = asyncHandler(async (req, res) => sendOne(res, await service.modifier(req.params.id, req.body, req)));
 const supprimer = asyncHandler(async (req, res) =>
@@ -35,6 +36,7 @@ const encaissementsJour = asyncHandler(async (req, res) =>
 
 module.exports = {
   lister,
+  createurs,
   obtenir,
   creer,
   modifier,

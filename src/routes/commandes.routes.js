@@ -5,6 +5,7 @@ const requirePermission = require('../middlewares/permissions');
 const scopePays = require('../middlewares/scopePays');
 
 router.get('/', requirePermission('commandes:voir'), scopePays('pays_id'), ctrl.lister);
+router.get('/createurs', requirePermission('commandes:voir'), scopePays('pays_id'), ctrl.createurs);
 router.get('/:id', requirePermission('commandes:voir'), ctrl.obtenir);
 router.post('/', requirePermission('commandes:creer'), scopePays('pays_id'), ctrl.creer);
 router.put('/:id', requirePermission('commandes:modifier'), ctrl.modifier);

@@ -12,7 +12,9 @@ function errorHandler(err, req, res, next) {
   let apiErr = err;
 
   if (err.name === 'ValidationError') {
-    apiErr = ApiError.badRequest('Erreur de validation', Object.values(err.errors).map((e) => e.message));
+    const details = Object.values(err.errors).map((e) => e.message);
+    // Le message porte le détail : les écrans n'affichent que `message`.
+    apiErr = ApiError.badRequest(`Erreur de validation : ${details.join(' ; ')}`, details);
   } else if (err.code === 11000) {
     apiErr = ApiError.conflict('Valeur en doublon sur un champ unique');
   } else if (!(err instanceof ApiError)) {
