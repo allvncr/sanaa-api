@@ -90,6 +90,13 @@ async function planifier({ commande_id, jour }, req) {
   if (['Annulee', 'Refusee'].includes(commande.statut_commande)) {
     throw ApiError.conflict('Une commande annulée ou refusée ne peut pas être planifiée en livraison');
   }
+  // Une commande ne se planifie en livraison qu'une fois fabriquée et reçue en pays
+  // (retour V0.1) : avant, il n'y a rien à livrer physiquement.
+  if (commande.statut_fabrication !== 'Terminee' || commande.statut_livraison !== 'Recue_en_pays') {
+    throw ApiError.conflict(
+      'Cette commande ne peut être planifiée en livraison que lorsque sa fabrication est Terminée et qu\'elle est Reçue en pays'
+    );
+  }
 
   const autres = await Livraison.find({ commande_id: commande._id, jour: { $ne: jour } })
     .select('jour')

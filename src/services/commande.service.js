@@ -172,10 +172,14 @@ const echapperRegex = (texte) => texte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * les prénoms gravés (pour retrouver une commande déjà saisie) ; `cree_par`
  * filtre sur l'utilisateur qui a saisi la commande.
  */
-async function lister({ pays_id, statut, date_de, date_a, client_id, q, cree_par, limite } = {}) {
+async function lister({
+  pays_id, statut, statut_fabrication, statut_livraison, date_de, date_a, client_id, q, cree_par, limite,
+} = {}) {
   const filtre = {};
   if (pays_id) filtre.pays_id = pays_id;
   if (statut) filtre.statut_commande = statut;
+  if (statut_fabrication) filtre.statut_fabrication = statut_fabrication;
+  if (statut_livraison) filtre.statut_livraison = statut_livraison;
   if (client_id) filtre.client_id = client_id;
   if (cree_par) filtre.cree_par = cree_par;
   if (date_de || date_a) {
