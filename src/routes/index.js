@@ -22,6 +22,7 @@ router.use('/utilisateurs', require('./utilisateurs.routes'));
 router.use('/', require('./catalogue.routes')); // /collections, /produits, /variantes
 router.use('/clients', require('./clients.routes'));
 router.use('/commandes', require('./commandes.routes'));
+router.use('/livraisons', require('./livraisons.routes'));
 router.use('/paiements', require('./paiements.routes'));
 router.use('/stock', require('./stock.routes'));
 router.use('/fournisseurs', require('./fournisseurs.routes'));

@@ -7,6 +7,7 @@ const PERMISSIONS = {
   catalogue: ['voir', 'creer', 'modifier', 'supprimer', 'desactiver', 'definir_prix_pays'],
   clients: ['voir', 'creer', 'modifier'],
   commandes: ['voir', 'creer', 'modifier', 'modifier_prix_manuellement', 'changer_statut', 'annuler', 'supprimer'],
+  livraisons: ['voir', 'planifier'],
   paiements: ['voir', 'enregistrer', 'annuler'],
   stock: ['voir', 'ajuster', 'transferer'],
   fournisseurs: ['voir', 'gerer'],
@@ -41,6 +42,7 @@ const ROLES_PAR_DEFAUT = [
     portee: 'pays',
     permissions: [
       'commandes:voir', 'commandes:creer', 'commandes:modifier', 'commandes:changer_statut',
+      'livraisons:voir', 'livraisons:planifier',
       'clients:voir', 'clients:creer', 'clients:modifier',
       'catalogue:voir', 'stock:voir', 'stock:ajuster',
       'dashboard:voir_pays', 'exports:generer', 'exports:telecharger',
@@ -53,7 +55,7 @@ const ROLES_PAR_DEFAUT = [
       'paiements:voir', 'paiements:enregistrer', 'paiements:annuler',
       'depenses:voir', 'depenses:creer', 'depenses:valider', 'depenses:supprimer',
       'exports:generer', 'exports:telecharger', 'exports:regenerer',
-      'dashboard:voir_pays', 'commandes:voir', 'clients:voir',
+      'dashboard:voir_pays', 'commandes:voir', 'clients:voir', 'livraisons:voir',
     ],
   },
   {

@@ -8,6 +8,7 @@ module.exports = {
   Produit: require('./Produit'),
   Client: require('./Client'),
   Commande: require('./Commande'),
+  Livraison: require('./Livraison'),
   StockMouvement: require('./StockMouvement'),
   Fournisseur: require('./Fournisseur'),
   CommandeFournisseur: require('./CommandeFournisseur'),

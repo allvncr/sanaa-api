@@ -172,7 +172,7 @@ const echapperRegex = (texte) => texte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * les prénoms gravés (pour retrouver une commande déjà saisie) ; `cree_par`
  * filtre sur l'utilisateur qui a saisi la commande.
  */
-async function lister({ pays_id, statut, date_de, date_a, client_id, q, cree_par } = {}) {
+async function lister({ pays_id, statut, date_de, date_a, client_id, q, cree_par, limite } = {}) {
   const filtre = {};
   if (pays_id) filtre.pays_id = pays_id;
   if (statut) filtre.statut_commande = statut;
@@ -203,7 +203,9 @@ async function lister({ pays_id, statut, date_de, date_a, client_id, q, cree_par
     ];
   }
 
-  return Commande.find(filtre).populate('client_id pays_id').populate('cree_par', 'nom').sort({ createdAt: -1 });
+  const requete = Commande.find(filtre).populate('client_id pays_id').populate('cree_par', 'nom').sort({ createdAt: -1 });
+  const max = Number(limite);
+  return max > 0 ? requete.limit(max) : requete;
 }
 
 /**
