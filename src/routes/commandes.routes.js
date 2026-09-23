@@ -20,5 +20,7 @@ router.patch('/:id/statut-livraison', requirePermission('commandes:changer_statu
 
 router.get('/:id/paiements', requirePermission('paiements:voir'), ctrl.listerPaiements);
 router.post('/:id/paiements', requirePermission('paiements:enregistrer'), ctrl.enregistrerPaiement);
+router.put('/:id/paiements/:paiementId', requirePermission('paiements:enregistrer'), ctrl.modifierPaiement);
+router.patch('/:id/paiements/:paiementId/annuler', requirePermission('paiements:annuler'), ctrl.annulerPaiement);
 
 module.exports = router;

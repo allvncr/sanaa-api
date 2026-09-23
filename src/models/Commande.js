@@ -42,6 +42,8 @@ const PaiementSchema = new Schema(
     reference: { type: String },
     saisi_par: { type: Schema.Types.ObjectId, ref: 'Utilisateur' },
     annule: { type: Boolean, default: false },
+    annule_par: { type: Schema.Types.ObjectId, ref: 'Utilisateur' },
+    annule_le: { type: Date },
   },
   { _id: true, timestamps: true }
 );

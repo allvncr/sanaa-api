@@ -33,6 +33,12 @@ const listerPaiements = asyncHandler(async (req, res) => sendList(res, await ser
 const enregistrerPaiement = asyncHandler(async (req, res) =>
   sendOne(res, await service.enregistrerPaiement(req.params.id, req.body, req), 201)
 );
+const modifierPaiement = asyncHandler(async (req, res) =>
+  sendOne(res, await service.modifierPaiement(req.params.id, req.params.paiementId, req.body))
+);
+const annulerPaiement = asyncHandler(async (req, res) =>
+  sendOne(res, await service.annulerPaiement(req.params.id, req.params.paiementId, req))
+);
 
 const encaissementsJour = asyncHandler(async (req, res) =>
   sendOne(res, await service.encaissementsJour(req.query.pays_id, req.query.date))
@@ -52,5 +58,7 @@ module.exports = {
   modifierStatutsEnLot,
   listerPaiements,
   enregistrerPaiement,
+  modifierPaiement,
+  annulerPaiement,
   encaissementsJour,
 };

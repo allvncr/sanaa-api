@@ -714,6 +714,51 @@ async function listerPaiements(id) {
 }
 
 /**
+ * Correction d'un paiement déjà saisi (ex. faute de frappe sur le moyen de
+ * paiement ou la référence). Le montant et la date restent immutables (voir
+ * commentaire du schéma) : une erreur de montant se corrige en annulant le
+ * paiement (annulerPaiement) puis en en saisissant un nouveau, pas en éditant
+ * rétroactivement un montant déjà comptabilisé.
+ */
+async function modifierPaiement(id, paiementId, data) {
+  const champs = {};
+  if (data.moyen_paiement !== undefined) champs['paiements.$.moyen_paiement'] = data.moyen_paiement;
+  if (data.type !== undefined) champs['paiements.$.type'] = data.type;
+  if (data.reference !== undefined) champs['paiements.$.reference'] = data.reference;
+  if (Object.keys(champs).length === 0) {
+    throw ApiError.badRequest('Aucune modification à enregistrer');
+  }
+
+  const commande = await Commande.findOneAndUpdate(
+    { _id: id, 'paiements._id': paiementId },
+    { $set: champs },
+    { new: true, runValidators: true }
+  );
+  if (!commande) throw ApiError.notFound('Commande ou paiement introuvable');
+  return avecResteAPayer(commande);
+}
+
+/**
+ * Annulation d'un paiement (retour V0.1) — ne le supprime jamais (historique
+ * financier), l'exclut simplement du reste à payer et des encaissements. C'est
+ * la façon de corriger un montant ou une date erronés : on annule, puis on
+ * ressaisit un paiement correct.
+ */
+async function annulerPaiement(id, paiementId, req) {
+  const commande = await Commande.findById(id);
+  if (!commande) throw ApiError.notFound('Commande introuvable');
+  const paiement = commande.paiements.id(paiementId);
+  if (!paiement) throw ApiError.notFound('Paiement introuvable');
+  if (paiement.annule) throw ApiError.conflict('Ce paiement est déjà annulé');
+
+  paiement.annule = true;
+  paiement.annule_par = req.user.id;
+  paiement.annule_le = new Date();
+  await commande.save();
+  return avecResteAPayer(commande);
+}
+
+/**
  * Encaissements du jour (section 8 du cahier de cadrage, section 6.2) — agrège
  * tous les paiements enregistrés à une date donnée pour un pays, répartis par
  * moyen de paiement.
@@ -771,6 +816,8 @@ module.exports = {
   changerStatutLivraison,
   modifierStatutsEnLot,
   enregistrerPaiement,
+  modifierPaiement,
+  annulerPaiement,
   listerPaiements,
   encaissementsJour,
   avecResteAPayer,
