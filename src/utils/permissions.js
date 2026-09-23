@@ -42,6 +42,7 @@ const ROLES_PAR_DEFAUT = [
     portee: 'pays',
     permissions: [
       'commandes:voir', 'commandes:creer', 'commandes:modifier', 'commandes:changer_statut',
+      'paiements:enregistrer',
       'livraisons:voir', 'livraisons:planifier',
       'clients:voir', 'clients:creer', 'clients:modifier',
       'catalogue:voir', 'stock:voir', 'stock:ajuster',
