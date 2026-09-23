@@ -24,6 +24,7 @@ const changerStatutFabrication = asyncHandler(async (req, res) =>
 const changerStatutLivraison = asyncHandler(async (req, res) =>
   sendOne(res, await service.changerStatutLivraison(req.params.id, req.body.statut))
 );
+const modifierStatutsEnLot = asyncHandler(async (req, res) => sendOne(res, await service.modifierStatutsEnLot(req.body)));
 
 const listerPaiements = asyncHandler(async (req, res) => sendList(res, await service.listerPaiements(req.params.id)));
 const enregistrerPaiement = asyncHandler(async (req, res) =>
@@ -45,6 +46,7 @@ module.exports = {
   changerStatutCommande,
   changerStatutFabrication,
   changerStatutLivraison,
+  modifierStatutsEnLot,
   listerPaiements,
   enregistrerPaiement,
   encaissementsJour,

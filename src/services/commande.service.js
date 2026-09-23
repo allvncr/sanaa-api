@@ -627,6 +627,46 @@ async function changerStatutLivraison(id, nouveauStatut) {
   return commande;
 }
 
+const STATUTS_FABRICATION = ['A_produire', 'En_fabrication', 'Terminee', 'Erreur'];
+const STATUTS_LIVRAISON = ['A_expedier', 'Recue_en_pays', 'En_livraison', 'Livree', 'Retour_echec'];
+
+/**
+ * Modification groupée du statut de fabrication et/ou de livraison sur plusieurs
+ * commandes à la fois (écran liste des commandes, sélection multiple). Seuls ces
+ * deux statuts sont modifiables en lot — jamais le statut de commande, les lignes
+ * ou les paiements, qui restent un changement par commande. Chaque commande passe
+ * par les mêmes fonctions que le changement individuel (mêmes horodatages, mêmes
+ * règles, même trace dans le journal d'activité) ; une commande en échec (ex. pas
+ * encore Confirmée) n'empêche pas les autres d'être traitées.
+ */
+async function modifierStatutsEnLot({ ids, statut_fabrication, statut_livraison } = {}) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw ApiError.badRequest('Aucune commande sélectionnée');
+  }
+  if (!statut_fabrication && !statut_livraison) {
+    throw ApiError.badRequest('Choisissez un statut de fabrication et/ou de livraison à appliquer');
+  }
+  if (statut_fabrication && !STATUTS_FABRICATION.includes(statut_fabrication)) {
+    throw ApiError.badRequest('Statut de fabrication invalide');
+  }
+  if (statut_livraison && !STATUTS_LIVRAISON.includes(statut_livraison)) {
+    throw ApiError.badRequest('Statut de livraison invalide');
+  }
+
+  const reussies = [];
+  const echecs = [];
+  for (const id of ids) {
+    try {
+      if (statut_fabrication) await changerStatutFabrication(id, statut_fabrication);
+      if (statut_livraison) await changerStatutLivraison(id, statut_livraison);
+      reussies.push(id);
+    } catch (err) {
+      echecs.push({ id, message: err.message || 'Échec' });
+    }
+  }
+  return { reussies: reussies.length, echecs };
+}
+
 /**
  * Enregistrement d'un paiement — opérateur atomique $push (section 3.5, 6.2) pour
  * qu'un ajout concurrent de deux paiements sur la même commande ne s'écrase jamais.
@@ -712,6 +752,7 @@ module.exports = {
   changerStatutCommande,
   changerStatutFabrication,
   changerStatutLivraison,
+  modifierStatutsEnLot,
   enregistrerPaiement,
   listerPaiements,
   encaissementsJour,

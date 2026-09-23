@@ -12,6 +12,8 @@ router.put('/:id', requirePermission('commandes:modifier'), ctrl.modifier);
 router.delete('/:id', requirePermission('commandes:supprimer'), ctrl.supprimer);
 router.get('/:id/historique', requirePermission('commandes:voir'), ctrl.historique);
 
+router.patch('/statuts-lot', requirePermission('commandes:changer_statut'), ctrl.modifierStatutsEnLot);
+
 router.patch('/:id/statut-commande', requirePermission('commandes:changer_statut'), ctrl.changerStatutCommande);
 router.patch('/:id/statut-fabrication', requirePermission('commandes:changer_statut'), ctrl.changerStatutFabrication);
 router.patch('/:id/statut-livraison', requirePermission('commandes:changer_statut'), ctrl.changerStatutLivraison);
