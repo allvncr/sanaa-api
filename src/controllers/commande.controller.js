@@ -2,7 +2,10 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendList, sendOne } = require('../utils/apiResponse');
 const service = require('../services/commande.service');
 
-const lister = asyncHandler(async (req, res) => sendList(res, await service.lister(req.query)));
+const lister = asyncHandler(async (req, res) => {
+  const { items, meta } = await service.lister(req.query);
+  sendList(res, items, meta);
+});
 const createurs = asyncHandler(async (req, res) => sendList(res, await service.createurs(req.query)));
 const obtenir =asyncHandler(async (req, res) => sendOne(res, await service.obtenir(req.params.id)));
 const creer = asyncHandler(async (req, res) => sendOne(res, await service.creer(req.body, req), 201));

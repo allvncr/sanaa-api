@@ -167,13 +167,22 @@ async function creer(data, req) {
 
 const echapperRegex = (texte) => texte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const LIMITE_DEFAUT = 20;
+const LIMITE_MAX = 100;
+function pagination({ page, limite } = {}) {
+  const p = Math.max(1, Number(page) || 1);
+  const l = Math.min(LIMITE_MAX, Math.max(1, Number(limite) || LIMITE_DEFAUT));
+  return { page: p, limite: l, skip: (p - 1) * l };
+}
+
 /**
- * Liste des commandes. `q` cherche dans le numéro, le nom/téléphone du client et
- * les prénoms gravés (pour retrouver une commande déjà saisie) ; `cree_par`
- * filtre sur l'utilisateur qui a saisi la commande.
+ * Liste des commandes, paginée (section « liste » de l'écran Commandes). `q`
+ * cherche dans le numéro, le nom/téléphone du client et les prénoms gravés
+ * (pour retrouver une commande déjà saisie) ; `cree_par` filtre sur
+ * l'utilisateur qui a saisi la commande.
  */
 async function lister({
-  pays_id, statut, statut_fabrication, statut_livraison, date_de, date_a, client_id, q, cree_par, limite,
+  pays_id, statut, statut_fabrication, statut_livraison, date_de, date_a, client_id, q, cree_par, page, limite,
 } = {}) {
   const filtre = {};
   if (pays_id) filtre.pays_id = pays_id;
@@ -207,9 +216,17 @@ async function lister({
     ];
   }
 
-  const requete = Commande.find(filtre).populate('client_id pays_id').populate('cree_par', 'nom').sort({ createdAt: -1 });
-  const max = Number(limite);
-  return max > 0 ? requete.limit(max) : requete;
+  const { page: p, limite: l, skip } = pagination({ page, limite });
+  const [items, total] = await Promise.all([
+    Commande.find(filtre)
+      .populate('client_id pays_id')
+      .populate('cree_par', 'nom')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(l),
+    Commande.countDocuments(filtre),
+  ]);
+  return { items, meta: { page: p, limite: l, total } };
 }
 
 /**

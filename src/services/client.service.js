@@ -3,11 +3,22 @@ const Commande = require('../models/Commande');
 const ApiError = require('../utils/ApiError');
 const { sum, toDecimal } = require('../utils/money');
 
-async function lister({ pays_id, q } = {}) {
+const LIMITE_DEFAUT = 20;
+const LIMITE_MAX = 100;
+
+/** Liste des clients, paginée (écran Clients). */
+async function lister({ pays_id, q, page, limite } = {}) {
   const filtre = {};
   if (pays_id) filtre.pays_id = pays_id;
   if (q) filtre.$or = [{ nom: new RegExp(q, 'i') }, { telephone_whatsapp: new RegExp(q, 'i') }];
-  return Client.find(filtre).sort({ createdAt: -1 });
+
+  const p = Math.max(1, Number(page) || 1);
+  const l = Math.min(LIMITE_MAX, Math.max(1, Number(limite) || LIMITE_DEFAUT));
+  const [items, total] = await Promise.all([
+    Client.find(filtre).sort({ createdAt: -1 }).skip((p - 1) * l).limit(l),
+    Client.countDocuments(filtre),
+  ]);
+  return { items, meta: { page: p, limite: l, total } };
 }
 
 async function creer(data) {

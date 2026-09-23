@@ -2,10 +2,26 @@ const Utilisateur = require('../models/Utilisateur');
 const Role = require('../models/Role');
 const ApiError = require('../utils/ApiError');
 
+const LIMITE_DEFAUT = 20;
+const LIMITE_MAX = 100;
+
+/** Liste des utilisateurs, paginée (écran Utilisateurs). */
 async function lister(req) {
   const filtre = {};
   if (!req.user.porteeGlobale) filtre.pays_autorises = { $in: req.user.paysAutorises };
-  return Utilisateur.find(filtre).populate('role_id').populate('pays_autorises').sort({ nom: 1 });
+
+  const p = Math.max(1, Number(req.query.page) || 1);
+  const l = Math.min(LIMITE_MAX, Math.max(1, Number(req.query.limite) || LIMITE_DEFAUT));
+  const [items, total] = await Promise.all([
+    Utilisateur.find(filtre)
+      .populate('role_id')
+      .populate('pays_autorises')
+      .sort({ nom: 1 })
+      .skip((p - 1) * l)
+      .limit(l),
+    Utilisateur.countDocuments(filtre),
+  ]);
+  return { items, meta: { page: p, limite: l, total } };
 }
 
 /**
