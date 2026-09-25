@@ -759,14 +759,38 @@ async function annulerPaiement(id, paiementId, req) {
 }
 
 /**
- * Encaissements du jour (section 8 du cahier de cadrage, section 6.2) — agrège
- * tous les paiements enregistrés à une date donnée pour un pays, répartis par
- * moyen de paiement.
+ * Bornes [début, fin[ de la période contenant `dateRef`, selon `periode`
+ * (jour/semaine/mois/annee). La semaine va du lundi au dimanche.
  */
-async function encaissementsJour(paysId, date) {
-  const jour = date ? new Date(date) : new Date();
-  const debut = new Date(jour.getFullYear(), jour.getMonth(), jour.getDate());
-  const fin = new Date(debut.getTime() + 24 * 60 * 60 * 1000);
+function bornesPeriode(periode, dateRef) {
+  const ref = dateRef ? new Date(dateRef) : new Date();
+  switch (periode) {
+    case 'semaine': {
+      const decalageLundi = (ref.getDay() + 6) % 7; // getDay() : dimanche=0 -> on ramène lundi=0
+      const debut = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - decalageLundi);
+      return { debut, fin: new Date(debut.getFullYear(), debut.getMonth(), debut.getDate() + 7) };
+    }
+    case 'mois':
+      return { debut: new Date(ref.getFullYear(), ref.getMonth(), 1), fin: new Date(ref.getFullYear(), ref.getMonth() + 1, 1) };
+    case 'annee':
+      return { debut: new Date(ref.getFullYear(), 0, 1), fin: new Date(ref.getFullYear() + 1, 0, 1) };
+    case 'jour':
+    default: {
+      const debut = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+      return { debut, fin: new Date(debut.getTime() + 24 * 60 * 60 * 1000) };
+    }
+  }
+}
+
+/**
+ * Encaissements (section 8 du cahier de cadrage, section 6.2) — agrège tous
+ * les paiements enregistrés sur une période pour un pays, répartis par moyen
+ * de paiement. `periode` : jour (défaut) / semaine / mois / annee, calculée
+ * autour de `date` (aujourd'hui par défaut). Les paiements sont triés du plus
+ * récent au plus ancien.
+ */
+async function encaissementsJour(paysId, date, periode) {
+  const { debut, fin } = bornesPeriode(periode, date);
 
   const commandes = await Commande.find({
     pays_id: paysId,
@@ -795,8 +819,12 @@ async function encaissementsJour(paysId, date) {
     }
   }
 
+  lignes.sort((a, b) => new Date(b.date_paiement) - new Date(a.date_paiement));
+
   return {
-    date: debut,
+    periode: periode || 'jour',
+    date_de: debut,
+    date_a: new Date(fin.getTime() - 1),
     total: total.toFixed(2),
     par_moyen_paiement: Object.fromEntries(Object.entries(parMoyen).map(([k, v]) => [k, v.toFixed(2)])),
     paiements: lignes,

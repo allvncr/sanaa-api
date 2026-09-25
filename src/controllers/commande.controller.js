@@ -41,7 +41,7 @@ const annulerPaiement = asyncHandler(async (req, res) =>
 );
 
 const encaissementsJour = asyncHandler(async (req, res) =>
-  sendOne(res, await service.encaissementsJour(req.query.pays_id, req.query.date))
+  sendOne(res, await service.encaissementsJour(req.query.pays_id, req.query.date, req.query.periode))
 );
 
 module.exports = {
