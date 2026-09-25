@@ -10,9 +10,12 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
+// En UTC, comme les bornes de requête (export.service.js bornesJour) — sinon
+// le nom du fichier peut afficher une date différente de celle des commandes
+// qu'il contient si le serveur tourne dans un fuseau autre qu'UTC.
 function dateComponents(date) {
   const d = new Date(date);
-  return { jj: pad2(d.getDate()), mm: pad2(d.getMonth() + 1), aaaa: d.getFullYear(), mois: d.getMonth() };
+  return { jj: pad2(d.getUTCDate()), mm: pad2(d.getUTCMonth() + 1), aaaa: d.getUTCFullYear(), mois: d.getUTCMonth() };
 }
 
 /**

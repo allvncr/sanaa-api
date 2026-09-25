@@ -2,9 +2,17 @@
 // Année/Mois/Semaine/Jour/Plage personnalisée, chacun avec sa période de
 // comparaison "N-1" correspondante (sauf la plage personnalisée, qui n'a pas
 // de période précédente évidente).
+//
+// Toutes les bornes sont calculées en UTC (getUTCFullYear/Date.UTC), jamais
+// avec le fuseau horaire local du serveur (new Date(y, m, d) utilise le
+// fuseau du processus Node) : ce calcul doit rester le même quel que soit le
+// serveur qui l'exécute. Sans ça, une commande saisie en soirée en Afrique de
+// l'Ouest peut basculer sur "le jour suivant" si le serveur tourne dans un
+// fuseau plus à l'est (ex. Europe/Paris, UTC+1/+2) — bug constaté en
+// production sur les exports du 25/09/2026 Togo/Bénin.
 
 function debutJour(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 function finJour(date) {
   return new Date(debutJour(date).getTime() + 24 * 60 * 60 * 1000 - 1);
@@ -12,24 +20,24 @@ function finJour(date) {
 // Semaine calendaire du lundi au dimanche.
 function debutSemaine(date) {
   const d = debutJour(date);
-  const decalage = (d.getDay() + 6) % 7; // lundi = 0
-  d.setDate(d.getDate() - decalage);
+  const decalage = (d.getUTCDay() + 6) % 7; // lundi = 0
+  d.setUTCDate(d.getUTCDate() - decalage);
   return d;
 }
 function finSemaine(date) {
   return new Date(debutSemaine(date).getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
 }
 function debutMois(date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 }
 function finMois(date) {
-  return new Date(new Date(date.getFullYear(), date.getMonth() + 1, 1).getTime() - 1);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) - 1);
 }
 function debutAnnee(date) {
-  return new Date(date.getFullYear(), 0, 1);
+  return new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
 }
 function finAnnee(date) {
-  return new Date(new Date(date.getFullYear() + 1, 0, 1).getTime() - 1);
+  return new Date(Date.UTC(date.getUTCFullYear() + 1, 0, 1) - 1);
 }
 
 /**
@@ -58,7 +66,7 @@ function resoudrePeriode(type, { date, periode_debut, periode_fin } = {}) {
       };
     }
     case 'mois': {
-      const moisPrecedent = new Date(ref.getFullYear(), ref.getMonth() - 1, 1);
+      const moisPrecedent = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() - 1, 1));
       return {
         debut: debutMois(ref),
         fin: finMois(ref),
@@ -66,7 +74,7 @@ function resoudrePeriode(type, { date, periode_debut, periode_fin } = {}) {
       };
     }
     case 'annee': {
-      const anneePrecedente = new Date(ref.getFullYear() - 1, 0, 1);
+      const anneePrecedente = new Date(Date.UTC(ref.getUTCFullYear() - 1, 0, 1));
       return {
         debut: debutAnnee(ref),
         fin: finAnnee(ref),

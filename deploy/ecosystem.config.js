@@ -9,7 +9,10 @@ module.exports = {
       cwd: __dirname + '/..',
       instances: 1, // VPS M = 4 vCore ; on pourrait passer en mode "cluster" plus tard si besoin
       exec_mode: 'fork',
-      env_production: { NODE_ENV: 'production' }, // les autres variables viennent du .env (dotenv)
+      // TZ=UTC ici (en plus du .env) pour être garanti actif dès le tout
+      // premier calcul de date du process, sans dépendre de l'ordre de
+      // chargement de dotenv. Les autres variables viennent du .env.
+      env_production: { NODE_ENV: 'production', TZ: 'UTC' },
       max_memory_restart: '400M',
       out_file: '/var/log/sanaa/backend.out.log',
       error_file: '/var/log/sanaa/backend.error.log',

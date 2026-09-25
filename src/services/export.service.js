@@ -34,9 +34,15 @@ const COLONNES_PRODUIT_ZH = [
   { header: '模型', key: 'modele', width: 28.33 },
 ];
 
+// En UTC, jamais avec le fuseau local du serveur (new Date(y, m, d) utilise le
+// fuseau du processus Node) : sinon une commande saisie en soirée bascule sur
+// "le jour suivant" dès que le serveur tourne dans un fuseau plus à l'est que
+// les pays SANAA (ex. Europe/Paris) — bug constaté sur les exports du
+// 25/09/2026 Togo/Bénin, où seules les commandes saisies plus tôt dans la
+// journée par un autre utilisateur apparaissaient dans le fichier.
 function bornesJour(date) {
   const jour = date ? new Date(date) : new Date();
-  const debut = new Date(jour.getFullYear(), jour.getMonth(), jour.getDate());
+  const debut = new Date(Date.UTC(jour.getUTCFullYear(), jour.getUTCMonth(), jour.getUTCDate()));
   const fin = new Date(debut.getTime() + 24 * 60 * 60 * 1000);
   return { debut, fin };
 }

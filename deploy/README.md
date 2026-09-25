@@ -42,6 +42,13 @@ La propagation peut prendre de quelques minutes à quelques heures.
 ```bash
 ssh root@IP_DU_VPS
 
+# Fuseau du serveur : UTC, pas le fuseau du prestataire (LWS met Europe/Paris
+# par défaut). Le code calcule ses journées/semaines/mois en UTC (exports,
+# dashboard, encaissements) ; un serveur resté sur un autre fuseau fait
+# basculer les commandes saisies en soirée sur "le jour suivant" dans les
+# exports/rapports — bug réel constaté le 25/09/2026 sur les exports Togo/Bénin.
+timedatectl set-timezone UTC
+
 # utilisateur dédié (ne jamais tourner en root au quotidien)
 adduser sanaa
 usermod -aG sudo sanaa

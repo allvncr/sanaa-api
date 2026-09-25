@@ -760,23 +760,29 @@ async function annulerPaiement(id, paiementId, req) {
 
 /**
  * Bornes [début, fin[ de la période contenant `dateRef`, selon `periode`
- * (jour/semaine/mois/annee). La semaine va du lundi au dimanche.
+ * (jour/semaine/mois/annee). La semaine va du lundi au dimanche. En UTC,
+ * jamais avec le fuseau local du serveur (new Date(y, m, d) utilise le fuseau
+ * du processus Node) — même bug/même correction que export.service.js
+ * bornesJour et utils/periode.js.
  */
 function bornesPeriode(periode, dateRef) {
   const ref = dateRef ? new Date(dateRef) : new Date();
   switch (periode) {
     case 'semaine': {
-      const decalageLundi = (ref.getDay() + 6) % 7; // getDay() : dimanche=0 -> on ramène lundi=0
-      const debut = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - decalageLundi);
-      return { debut, fin: new Date(debut.getFullYear(), debut.getMonth(), debut.getDate() + 7) };
+      const decalageLundi = (ref.getUTCDay() + 6) % 7; // getUTCDay() : dimanche=0 -> on ramène lundi=0
+      const debut = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate() - decalageLundi));
+      return { debut, fin: new Date(Date.UTC(debut.getUTCFullYear(), debut.getUTCMonth(), debut.getUTCDate() + 7)) };
     }
     case 'mois':
-      return { debut: new Date(ref.getFullYear(), ref.getMonth(), 1), fin: new Date(ref.getFullYear(), ref.getMonth() + 1, 1) };
+      return {
+        debut: new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1)),
+        fin: new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 1)),
+      };
     case 'annee':
-      return { debut: new Date(ref.getFullYear(), 0, 1), fin: new Date(ref.getFullYear() + 1, 0, 1) };
+      return { debut: new Date(Date.UTC(ref.getUTCFullYear(), 0, 1)), fin: new Date(Date.UTC(ref.getUTCFullYear() + 1, 0, 1)) };
     case 'jour':
     default: {
-      const debut = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+      const debut = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()));
       return { debut, fin: new Date(debut.getTime() + 24 * 60 * 60 * 1000) };
     }
   }
