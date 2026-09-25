@@ -13,7 +13,8 @@ deployer_backend() {
   echo "== Backend =="
   cd "$BASE/backend"
   git pull --ff-only
-  npm ci --omit=dev
+  # npm ci exigerait un package-lock.json, absent de ce dépôt (jamais committé) :
+  npm install --omit=dev
   pm2 reload deploy/ecosystem.config.js --env production
 }
 
