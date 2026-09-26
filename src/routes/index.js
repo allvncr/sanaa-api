@@ -6,12 +6,17 @@ const authentifier = require('../middlewares/auth');
 // Limitation de débit sur les routes sensibles — section 2.6.
 const limiteurConnexion = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 const limiteurExports = rateLimit({ windowMs: 5 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+// Public et sans compte (section suivi client) : rate-limit plus serré que la
+// connexion, seule vraie défense contre l'énumération des numéros de commande
+// (séquentiels) au-delà de la vérification numéro+téléphone du service.
+const limiteurSuivi = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false });
 
 router.use('/auth', (req, res, next) => {
   if (req.path === '/login') return limiteurConnexion(req, res, next);
   return next();
 });
 router.use('/auth', require('./auth.routes'));
+router.use('/suivi', limiteurSuivi, require('./suivi.routes'));
 
 // Toutes les routes suivantes nécessitent un jeton JWT valide (section 5).
 router.use(authentifier);
