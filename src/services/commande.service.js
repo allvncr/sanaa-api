@@ -188,7 +188,11 @@ async function lister({
   if (pays_id) filtre.pays_id = pays_id;
   if (statut) filtre.statut_commande = statut;
   if (statut_fabrication) filtre.statut_fabrication = statut_fabrication;
-  if (statut_livraison) filtre.statut_livraison = statut_livraison;
+  // Peut être une liste (ex. Livraisons.vue : "Reçue en pays" OU "Retour/échec",
+  // toutes deux planifiables) en plus d'une valeur unique.
+  if (statut_livraison) {
+    filtre.statut_livraison = Array.isArray(statut_livraison) ? { $in: statut_livraison } : statut_livraison;
+  }
   if (client_id) filtre.client_id = client_id;
   if (cree_par) filtre.cree_par = cree_par;
   if (date_de || date_a) {

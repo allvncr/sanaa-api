@@ -2,6 +2,12 @@ const Livraison = require('../models/Livraison');
 const Commande = require('../models/Commande');
 const ApiError = require('../utils/ApiError');
 const commandeService = require('./commande.service');
+const { toDecimal, toDecimal128 } = require('../utils/money');
+
+// Statuts de commande à partir desquels une livraison peut être (re)planifiée :
+// jamais livrée/en cours (Recue_en_pays) ou déjà tentée sans succès (Retour_echec,
+// re-planifiable après un nouvel essai).
+const STATUTS_LIVRAISON_PLANIFIABLES = ['Recue_en_pays', 'Retour_echec'];
 
 const FORMAT_JOUR = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -22,7 +28,16 @@ const POPULATE_COMMANDE = {
 
 function formater(livraison) {
   const c = livraison.commande_id;
-  const base = { _id: livraison._id, jour: livraison.jour, createdAt: livraison.createdAt };
+  const base = {
+    _id: livraison._id,
+    jour: livraison.jour,
+    createdAt: livraison.createdAt,
+    livree: !!livraison.livree,
+    livree_le: livraison.livree_le || null,
+    livree_par: livraison.livree_par && livraison.livree_par.nom ? livraison.livree_par.nom : null,
+    montant_recu: String(livraison.montant_recu || 0),
+    frais_livraison: String(livraison.frais_livraison || 0),
+  };
   // Commande supprimée depuis : l'entrée reste visible pour pouvoir être retirée.
   if (!c || !c.numero) return { ...base, commande: null };
 
@@ -72,7 +87,10 @@ async function lister({ du, au, pays_id, commande_id } = {}) {
       filtre.jour.$lte = au;
     }
   }
-  const livraisons = await Livraison.find(filtre).populate(POPULATE_COMMANDE).sort({ jour: 1, createdAt: 1 });
+  const livraisons = await Livraison.find(filtre)
+    .populate(POPULATE_COMMANDE)
+    .populate('livree_par', 'nom')
+    .sort({ jour: 1, createdAt: 1 });
   return livraisons.map(formater);
 }
 
@@ -90,11 +108,16 @@ async function planifier({ commande_id, jour }, req) {
   if (['Annulee', 'Refusee'].includes(commande.statut_commande)) {
     throw ApiError.conflict('Une commande annulée ou refusée ne peut pas être planifiée en livraison');
   }
-  // Une commande ne se planifie en livraison qu'une fois fabriquée et reçue en pays
-  // (retour V0.1) : avant, il n'y a rien à livrer physiquement.
-  if (commande.statut_fabrication !== 'Terminee' || commande.statut_livraison !== 'Recue_en_pays') {
+  // Une commande ne se planifie en livraison qu'une fois fabriquée, et si elle n'a
+  // pas déjà été livrée / n'est pas déjà en cours de livraison ailleurs (retour
+  // V0.1) : avant, il n'y a rien à livrer physiquement ; Retour_echec reste
+  // planifiable (nouvelle tentative).
+  if (
+    commande.statut_fabrication !== 'Terminee' ||
+    !STATUTS_LIVRAISON_PLANIFIABLES.includes(commande.statut_livraison)
+  ) {
     throw ApiError.conflict(
-      'Cette commande ne peut être planifiée en livraison que lorsque sa fabrication est Terminée et qu\'elle est Reçue en pays'
+      "Cette commande ne peut être planifiée en livraison que lorsque sa fabrication est Terminée et qu'elle est Reçue en pays (ou suite à un échec de livraison)"
     );
   }
 
@@ -115,18 +138,91 @@ async function planifier({ commande_id, jour }, req) {
     throw err;
   }
 
-  const complete = await Livraison.findById(livraison._id).populate(POPULATE_COMMANDE);
+  // Remise au livreur = passage en "En livraison" (retour V0.1, 26/09/2026) : le
+  // client suit désormais sa commande comme "en livraison" sans action manuelle
+  // supplémentaire de l'équipe.
+  if (commande.statut_livraison !== 'En_livraison') {
+    await commandeService.changerStatutLivraison(commande._id, 'En_livraison');
+  }
+
+  const complete = await Livraison.findById(livraison._id).populate(POPULATE_COMMANDE).populate('livree_par', 'nom');
   return { ...formater(complete), autres_jours: autres.map((a) => a.jour) };
 }
 
-/** Retire une livraison du calendrier (report ou livraison non effectuée). */
+/**
+ * Retire une livraison du calendrier (report ou livraison non effectuée). Si la
+ * commande n'a plus aucune autre livraison active planifiée ailleurs et n'a pas
+ * progressé depuis (toujours "En livraison"), elle repasse "Reçue en pays" — sinon
+ * un retrait laisserait la commande bloquée "en livraison" sans plan associé.
+ */
 async function retirer(id) {
   const livraison = await Livraison.findById(id);
   if (!livraison) throw ApiError.notFound('Livraison introuvable');
+  if (livraison.livree) throw ApiError.conflict('Cette livraison est déjà marquée livrée, elle ne peut plus être retirée');
+
   // findOneAndDelete (et non deleteOne d'instance) pour que le journal d'activité
   // enregistre la suppression et son auteur.
   await Livraison.findOneAndDelete({ _id: livraison._id, pays_id: livraison.pays_id });
+
+  const autrePlanActif = await Livraison.exists({ commande_id: livraison.commande_id, livree: false });
+  if (!autrePlanActif) {
+    const commande = await Commande.findById(livraison.commande_id);
+    if (commande && commande.statut_livraison === 'En_livraison') {
+      await commandeService.changerStatutLivraison(commande._id, 'Recue_en_pays');
+    }
+  }
+
   return { _id: livraison._id, jour: livraison.jour };
 }
 
-module.exports = { lister, planifier, retirer };
+/**
+ * Marque une livraison comme effectuée : encaisse le solde payé par le client
+ * (vrai paiement sur la commande, comme depuis l'écran commande — impacte le
+ * reste à payer) et enregistre séparément les frais de livraison perçus par le
+ * livreur, qui n'en font jamais partie (retour V0.1, 26/09/2026).
+ */
+async function marquerLivree(id, { montant_recu, moyen_paiement, frais_livraison }, req) {
+  const livraison = await Livraison.findById(id);
+  if (!livraison) throw ApiError.notFound('Livraison introuvable');
+  if (livraison.livree) throw ApiError.conflict('Cette livraison est déjà marquée livrée');
+
+  const montant = toDecimal(montant_recu || 0);
+  const frais = toDecimal(frais_livraison || 0);
+  if (montant.lt(0) || frais.lt(0)) throw ApiError.badRequest('Les montants ne peuvent pas être négatifs');
+  if (montant.gt(0) && !String(moyen_paiement || '').trim()) {
+    throw ApiError.badRequest('Indiquez le moyen de paiement reçu');
+  }
+
+  if (montant.gt(0)) {
+    await commandeService.enregistrerPaiement(
+      livraison.commande_id,
+      { type: 'solde', montant: montant.toString(), moyen_paiement },
+      req
+    );
+  }
+  await commandeService.changerStatutLivraison(livraison.commande_id, 'Livree');
+
+  livraison.livree = true;
+  livraison.livree_le = new Date();
+  livraison.livree_par = req.user.id;
+  livraison.montant_recu = toDecimal128(montant);
+  livraison.frais_livraison = toDecimal128(frais);
+  await livraison.save();
+
+  const complete = await Livraison.findById(livraison._id).populate(POPULATE_COMMANDE).populate('livree_par', 'nom');
+  return formater(complete);
+}
+
+/** Signale une tentative de livraison infructueuse (absence, échec...) : la commande redevient planifiable pour une nouvelle tentative. */
+async function signalerProbleme(id, req) {
+  const livraison = await Livraison.findById(id);
+  if (!livraison) throw ApiError.notFound('Livraison introuvable');
+  if (livraison.livree) throw ApiError.conflict('Cette livraison est déjà marquée livrée');
+
+  await commandeService.changerStatutLivraison(livraison.commande_id, 'Retour_echec');
+
+  const complete = await Livraison.findById(livraison._id).populate(POPULATE_COMMANDE).populate('livree_par', 'nom');
+  return formater(complete);
+}
+
+module.exports = { lister, planifier, retirer, marquerLivree, signalerProbleme };

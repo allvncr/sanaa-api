@@ -7,7 +7,7 @@ const PERMISSIONS = {
   catalogue: ['voir', 'creer', 'modifier', 'supprimer', 'desactiver', 'definir_prix_pays'],
   clients: ['voir', 'creer', 'modifier'],
   commandes: ['voir', 'creer', 'modifier', 'modifier_prix_manuellement', 'changer_statut', 'annuler', 'supprimer'],
-  livraisons: ['voir', 'planifier'],
+  livraisons: ['voir', 'planifier', 'livrer'],
   paiements: ['voir', 'enregistrer', 'annuler'],
   stock: ['voir', 'ajuster', 'transferer'],
   fournisseurs: ['voir', 'gerer'],
@@ -43,7 +43,7 @@ const ROLES_PAR_DEFAUT = [
     permissions: [
       'commandes:voir', 'commandes:creer', 'commandes:modifier', 'commandes:changer_statut',
       'paiements:voir', 'paiements:enregistrer',
-      'livraisons:voir', 'livraisons:planifier',
+      'livraisons:voir', 'livraisons:planifier', 'livraisons:livrer',
       'clients:voir', 'clients:creer', 'clients:modifier',
       'catalogue:voir', 'stock:voir', 'stock:ajuster',
       'dashboard:voir_pays', 'exports:generer', 'exports:telecharger',
@@ -63,6 +63,15 @@ const ROLES_PAR_DEFAUT = [
     nom: 'Marketing',
     portee: 'pays',
     permissions: ['marketing:voir', 'marketing:gerer', 'dashboard:voir_pays'],
+  },
+  {
+    // Rôle dédié (retour V0.1, 26/09/2026) : accès uniquement à ses livraisons
+    // du jour, écran mobile dédié hors AppShell (voir router frontend) — jamais
+    // les écrans commandes/dashboard/etc. Ne peut ni planifier ni retirer une
+    // livraison (ça reste au gestionnaire), seulement marquer livrée/échec.
+    nom: 'Livreur',
+    portee: 'pays',
+    permissions: ['livraisons:voir', 'livraisons:livrer'],
   },
 ];
 
