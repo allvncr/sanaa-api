@@ -84,4 +84,52 @@ async function attribuerPays(id, paysIds) {
   return utilisateur;
 }
 
-module.exports = { lister, creer, modifier, attribuerPays };
+/**
+ * Suppression définitive d'un compte — refusée si le compte a déjà laissé une
+ * trace (commandes, livraisons, dépenses, stock, journal d'activité), pour ne
+ * jamais casser l'attribution de l'historique existant. `modifier(id, { actif:
+ * false })` reste la voie pour désactiver un compte qui a un historique.
+ */
+async function supprimer(id, req) {
+  if (String(req.user.id) === String(id)) {
+    throw ApiError.forbidden('Vous ne pouvez pas supprimer votre propre compte');
+  }
+
+  const utilisateur = await Utilisateur.findById(id).populate('role_id');
+  if (!utilisateur) throw ApiError.notFound('Utilisateur introuvable');
+
+  if (!req.user.porteeGlobale && utilisateur.role_id && utilisateur.role_id.portee === 'global') {
+    throw ApiError.forbidden('Vous ne pouvez pas supprimer un compte à portée globale');
+  }
+
+  const [Commande, Livraison, Depense, StockMouvement, JournalActivite] = [
+    require('../models/Commande'),
+    require('../models/Livraison'),
+    require('../models/Depense'),
+    require('../models/StockMouvement'),
+    require('../models/JournalActivite'),
+  ];
+
+  const verifications = [
+    { modele: Commande, champ: 'cree_par', libelle: 'des commandes créées' },
+    { modele: Livraison, champ: 'cree_par', libelle: 'des livraisons planifiées' },
+    { modele: Livraison, champ: 'livree_par', libelle: 'des livraisons confirmées' },
+    { modele: Depense, champ: 'valide_par', libelle: 'des dépenses validées' },
+    { modele: StockMouvement, champ: 'saisi_par', libelle: 'des mouvements de stock' },
+    { modele: JournalActivite, champ: 'utilisateur_id', libelle: "des actions dans le journal d'activité" },
+  ];
+
+  for (const { modele, champ, libelle } of verifications) {
+    const existe = await modele.exists({ [champ]: id });
+    if (existe) {
+      throw ApiError.conflict(
+        `Suppression impossible : ${libelle} sont déjà rattachées à ce compte. Désactivez-le plutôt (modifier → actif = false).`
+      );
+    }
+  }
+
+  await Utilisateur.deleteOne({ _id: id });
+  return { supprime: true };
+}
+
+module.exports = { lister, creer, modifier, attribuerPays, supprimer };

@@ -7,5 +7,6 @@ router.get('/', requirePermission('utilisateurs:voir'), ctrl.lister);
 router.post('/', requirePermission('utilisateurs:creer'), ctrl.creer);
 router.put('/:id', requirePermission('utilisateurs:modifier'), ctrl.modifier);
 router.post('/:id/pays', requirePermission('utilisateurs:attribuer_pays'), ctrl.attribuerPays);
+router.delete('/:id', requirePermission('utilisateurs:supprimer'), ctrl.supprimer);
 
 module.exports = router;

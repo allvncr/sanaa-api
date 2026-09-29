@@ -3,7 +3,7 @@
 // les permissions attendues sur chaque route (section 5).
 const PERMISSIONS = {
   pays: ['voir', 'creer', 'modifier', 'supprimer'],
-  utilisateurs: ['voir', 'creer', 'modifier', 'desactiver', 'attribuer_pays'],
+  utilisateurs: ['voir', 'creer', 'modifier', 'desactiver', 'attribuer_pays', 'supprimer'],
   catalogue: ['voir', 'creer', 'modifier', 'supprimer', 'desactiver', 'definir_prix_pays'],
   clients: ['voir', 'creer', 'modifier'],
   commandes: ['voir', 'creer', 'modifier', 'modifier_prix_manuellement', 'changer_statut', 'annuler', 'supprimer'],

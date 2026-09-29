@@ -11,5 +11,6 @@ const modifier = asyncHandler(async (req, res) => sendOne(res, await service.mod
 const attribuerPays = asyncHandler(async (req, res) =>
   sendOne(res, await service.attribuerPays(req.params.id, req.body.pays_ids))
 );
+const supprimer = asyncHandler(async (req, res) => sendOne(res, await service.supprimer(req.params.id, req)));
 
-module.exports = { lister, creer, modifier, attribuerPays };
+module.exports = { lister, creer, modifier, attribuerPays, supprimer };
