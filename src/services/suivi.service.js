@@ -127,17 +127,19 @@ function construireEtapes(commande) {
 
 /**
  * Suivi public d'une commande — accessible sans compte, avec numéro de
- * commande + téléphone du client comme seule vérification. Ne renvoie jamais
- * de données financières (total, paiements, reste à payer), l'adresse
- * complète du client, ni le texte des personnalisations gravées : seulement
- * ce qui sert à répondre à "où en est ma commande".
+ * commande + téléphone du client comme seule vérification. Le téléphone saisi
+ * est déjà la preuve que l'on parle au client lui-même, donc on lui confirme
+ * ses propres coordonnées (nom, téléphone, adresse de livraison) et le détail
+ * de personnalisation de son bijou (retour V0.1, 29/09/2026) — jamais de
+ * données financières (total, paiements, reste à payer), qui restent
+ * réservées à l'équipe SANAA.
  */
 async function suivre(numero, telephoneSaisi) {
   const numeroNormalise = String(numero || '').trim().toUpperCase();
   if (!numeroNormalise || !telephoneSaisi) throw ApiError.notFound(MESSAGE_INTROUVABLE);
 
   const commande = await Commande.findOne({ numero: numeroNormalise })
-    .populate('client_id', 'telephone_whatsapp')
+    .populate('client_id', 'nom telephone_whatsapp adresse')
     .populate('lignes.produit_id', 'nom');
   if (!commande) throw ApiError.notFound(MESSAGE_INTROUVABLE);
 
@@ -153,10 +155,19 @@ async function suivre(numero, telephoneSaisi) {
     statut_livraison_libelle: LIBELLES_LIVRAISON[commande.statut_livraison],
     probleme,
     etapes,
+    client: commande.client_id
+      ? {
+          nom: commande.client_id.nom,
+          telephone_whatsapp: commande.client_id.telephone_whatsapp,
+          adresse: commande.client_id.adresse,
+        }
+      : null,
     articles: commande.lignes.map((l) => ({
       produit: l.produit_id && l.produit_id.nom ? l.produit_id.nom : 'Bijou personnalisé',
       couleur: l.couleur_choisie || undefined,
+      detail: l.detail_variante || undefined,
       quantite: l.quantite,
+      personnalisation: (l.personnalisation || []).map((p) => p.texte).filter(Boolean).join(' / ') || undefined,
     })),
   };
 }
