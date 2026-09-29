@@ -27,6 +27,25 @@ function telephoneCorrespond(telephoneClient, telephoneSaisi) {
     .some((candidat) => candidat.slice(-6) === suffixeSaisi || candidat.slice(-4) === saisi.slice(-4));
 }
 
+// Délais moyens communiqués au client (retour V0.1, 29/09/2026) — utilisés pour
+// estimer les jalons non encore atteints ; dès qu'un jalon est réellement
+// atteint, sa date réelle horodatée prend le pas sur l'estimation.
+const UN_JOUR_MS = 24 * 60 * 60 * 1000;
+const JOURS_FABRICATION = 7;
+const JOURS_TRANSIT = 7;
+
+function ajouterJours(date, jours) {
+  return new Date(date.getTime() + jours * UN_JOUR_MS);
+}
+
+// Jamais de livraison le dimanche : si le jour estimé tombe un dimanche, on le
+// décale au lundi suivant.
+function prochainJourLivrable(date) {
+  const d = new Date(date);
+  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+  return d;
+}
+
 const LIBELLES_FABRICATION = {
   A_produire: 'À produire',
   En_fabrication: 'En fabrication',
@@ -57,12 +76,43 @@ function construireEtapes(commande) {
   const fabricationAtteinte = { A_produire: 1, En_fabrication: 1, Terminee: 2, Erreur: 0 }[commande.statut_fabrication] || 0;
   const livraisonRang = { A_expedier: 0, Recue_en_pays: 1, En_livraison: 2, Livree: 3, Retour_echec: 0 }[commande.statut_livraison] || 0;
 
+  // Chaque estimation part de la meilleure date connue à ce stade (réelle si le
+  // jalon précédent est atteint, sinon déjà elle-même une estimation) — la chaîne
+  // se resserre au fur et à mesure que les vraies dates arrivent.
+  const dateFabricationTerminee = commande.date_fabrication_terminee || ajouterJours(commande.createdAt, JOURS_FABRICATION);
+  const dateRecueEnPays = commande.date_recue_en_pays || ajouterJours(dateFabricationTerminee, JOURS_TRANSIT);
+  const dateLivraisonEstimee = commande.date_livraison || prochainJourLivrable(ajouterJours(dateRecueEnPays, 1));
+
   const etapes = [
-    { cle: 'confirmee', libelle: 'Commande confirmée', atteinte: true, date: commande.createdAt },
-    { cle: 'fabrication_terminee', libelle: 'Fabrication terminée', atteinte: fabricationAtteinte >= 2, date: commande.date_fabrication_terminee },
-    { cle: 'recue_en_pays', libelle: 'Reçue en pays', atteinte: livraisonRang >= 1, date: null },
-    { cle: 'en_livraison', libelle: 'En livraison', atteinte: livraisonRang >= 2, date: commande.date_debut_livraison },
-    { cle: 'livree', libelle: 'Livrée', atteinte: livraisonRang >= 3, date: commande.date_livraison },
+    { cle: 'confirmee', libelle: 'Commande confirmée', atteinte: true, date: commande.createdAt, date_estimee: null },
+    {
+      cle: 'fabrication_terminee',
+      libelle: 'Fabrication terminée',
+      atteinte: fabricationAtteinte >= 2,
+      date: fabricationAtteinte >= 2 ? commande.date_fabrication_terminee : null,
+      date_estimee: fabricationAtteinte >= 2 ? null : dateFabricationTerminee,
+    },
+    {
+      cle: 'recue_en_pays',
+      libelle: 'Reçue en pays',
+      atteinte: livraisonRang >= 1,
+      date: livraisonRang >= 1 ? commande.date_recue_en_pays : null,
+      date_estimee: livraisonRang >= 1 ? null : dateRecueEnPays,
+    },
+    {
+      cle: 'en_livraison',
+      libelle: 'En livraison',
+      atteinte: livraisonRang >= 2,
+      date: livraisonRang >= 2 ? commande.date_debut_livraison : null,
+      date_estimee: livraisonRang >= 2 ? null : dateLivraisonEstimee,
+    },
+    {
+      cle: 'livree',
+      libelle: 'Livrée',
+      atteinte: livraisonRang >= 3,
+      date: livraisonRang >= 3 ? commande.date_livraison : null,
+      date_estimee: livraisonRang >= 3 ? null : dateLivraisonEstimee,
+    },
   ];
 
   let probleme = null;

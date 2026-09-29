@@ -618,6 +618,7 @@ async function changerStatutFabrication(id, nouveauStatut) {
     commande.date_fabrication_terminee = new Date();
     if (commande.statut_livraison === 'A_expedier') {
       commande.statut_livraison = 'Recue_en_pays';
+      if (!commande.date_recue_en_pays) commande.date_recue_en_pays = new Date();
     }
   } else if (nouveauStatut === 'Erreur') {
     commande.date_fabrication_erreur = new Date();
@@ -640,7 +641,9 @@ async function changerStatutLivraison(id, nouveauStatut) {
   }
 
   commande.statut_livraison = nouveauStatut;
-  if (nouveauStatut === 'En_livraison') commande.date_debut_livraison = new Date();
+  if (nouveauStatut === 'Recue_en_pays') {
+    if (!commande.date_recue_en_pays) commande.date_recue_en_pays = new Date();
+  } else if (nouveauStatut === 'En_livraison') commande.date_debut_livraison = new Date();
   else if (nouveauStatut === 'Livree') commande.date_livraison = new Date();
   else if (nouveauStatut === 'Retour_echec') commande.date_retour_echec = new Date();
 

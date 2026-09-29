@@ -94,6 +94,7 @@ const CommandeSchema = new Schema(
     // par commande.service.js à chaque transition concernée.
     date_fabrication_terminee: { type: Date },
     date_fabrication_erreur: { type: Date },
+    date_recue_en_pays: { type: Date },
     date_debut_livraison: { type: Date },
     date_livraison: { type: Date },
     date_retour_echec: { type: Date },
