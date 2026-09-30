@@ -127,6 +127,7 @@ async function genererExportInterne(paysId, date, utilisateurId) {
     { header: 'Avance', key: 'avance', width: 32.55 },
     { header: 'Prix', key: 'prix', width: 22 },
     { header: 'reste', key: 'reste', width: 30.33 },
+    { header: 'Client', key: 'client_nom', width: 28 },
     { header: 'Numero', key: 'numero_tel', width: 38.55 },
     { header: 'Adresse', key: 'adresse', width: 47.55 },
   ];
@@ -151,6 +152,7 @@ async function genererExportInterne(paysId, date, utilisateurId) {
         // reste = Prix - Avance, formule live (colonnes H et G de cette même
         // ligne) plutôt qu'une valeur figée, comme dans le classeur SANAA actuel.
         reste: { formula: `H${numeroExcel}-G${numeroExcel}` },
+        client_nom: commande.client_id ? commande.client_id.nom : '',
         numero_tel: commande.client_id ? commande.client_id.telephone_whatsapp : '',
         adresse: commande.client_id ? commande.client_id.adresse : '',
       });
