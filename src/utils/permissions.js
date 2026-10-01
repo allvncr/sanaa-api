@@ -46,7 +46,7 @@ const ROLES_PAR_DEFAUT = [
       'livraisons:voir', 'livraisons:planifier', 'livraisons:livrer',
       'clients:voir', 'clients:creer', 'clients:modifier',
       'catalogue:voir', 'stock:voir', 'stock:ajuster',
-      'dashboard:voir_pays', 'exports:generer', 'exports:telecharger',
+      'exports:generer', 'exports:telecharger',
     ],
   },
   {
