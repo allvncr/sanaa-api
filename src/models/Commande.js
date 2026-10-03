@@ -68,12 +68,13 @@ const CommandeSchema = new Schema(
       default: 'Confirmee',
       index: true,
     },
-    // Idem : la fabrication démarre directement (retour V0.1). "Erreur" couvre
-    // un défaut constaté à la réception en usine/pays.
+    // Parcours de fabrication (retour du 03/10/2026) : À produire à la création,
+    // puis passage manuel à En_fabrication quand la commande est envoyée à
+    // l'usine, Terminée quand l'usine a fini, ou Erreur en cas de défaut.
     statut_fabrication: {
       type: String,
       enum: ['A_produire', 'En_fabrication', 'Terminee', 'Erreur'],
-      default: 'En_fabrication',
+      default: 'A_produire',
     },
     statut_livraison: {
       type: String,

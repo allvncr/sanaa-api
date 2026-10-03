@@ -148,7 +148,7 @@ async function creer(data, req) {
           total: toDecimal128(total),
           reduction: toDecimal128(reduction),
           // Permet un usage manuel/API en brouillon si explicitement demandé ;
-          // sinon les valeurs par défaut du schéma (Confirmee/En_fabrication)
+          // sinon les valeurs par défaut du schéma (Confirmee/A_produire/A_expedier)
           // s'appliquent — cas normal de la saisie rapide.
           ...(data.statut_commande ? { statut_commande: data.statut_commande } : {}),
         },
@@ -600,11 +600,11 @@ async function changerStatutCommande(id, nouveauStatut, req) {
 }
 
 /**
- * Transition de statut_fabrication (retour V0.1) : horodate le jalon atteint
- * et, lorsque la fabrication est marquée Terminée, fait automatiquement
- * progresser la livraison à "Recue_en_pays" — la réception des bijoux
- * terminés marque de facto leur arrivée en pays dans le flux réel de SANAA.
- * "Erreur" couvre un défaut constaté à la vérification des pièces reçues.
+ * Transition de statut_fabrication : horodate le jalon atteint. Les trois
+ * statuts (fabrication, livraison, commande) sont indépendants (retour du
+ * 03/10/2026) : terminer la fabrication ne touche PAS à la livraison, qui
+ * passe à "Reçue en pays" par une action manuelle distincte quand le colis
+ * arrive vraiment. "Erreur" couvre un défaut constaté sur les pièces.
  */
 async function changerStatutFabrication(id, nouveauStatut) {
   const commande = await Commande.findById(id);
@@ -616,10 +616,6 @@ async function changerStatutFabrication(id, nouveauStatut) {
   commande.statut_fabrication = nouveauStatut;
   if (nouveauStatut === 'Terminee') {
     commande.date_fabrication_terminee = new Date();
-    if (commande.statut_livraison === 'A_expedier') {
-      commande.statut_livraison = 'Recue_en_pays';
-      if (!commande.date_recue_en_pays) commande.date_recue_en_pays = new Date();
-    }
   } else if (nouveauStatut === 'Erreur') {
     commande.date_fabrication_erreur = new Date();
   }
