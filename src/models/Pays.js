@@ -13,6 +13,10 @@ const PaysSchema = new Schema(
     nom: { type: String, required: true, trim: true },
     devise_locale_id: { type: Schema.Types.ObjectId, ref: 'Devise', required: true },
     parametres: { type: Schema.Types.Mixed, default: {} },
+    // Indicatif téléphonique (ex. "225") pour construire les liens WhatsApp
+    // quand le numéro du client est saisi en format local. Facultatif : un
+    // repli par code pays existe côté frontend (utils/whatsapp.js).
+    indicatif: { type: String, trim: true },
     moyens_paiement: { type: [MoyenPaiementSchema], default: [] },
     est_pays_historique_sans_suffixe: { type: Boolean, default: false },
     ca_statuts_inclus: {
