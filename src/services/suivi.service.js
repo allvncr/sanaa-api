@@ -158,7 +158,11 @@ async function suivre(numero, telephoneSaisi) {
   const reste = totalNet.minus(avance);
   const devise = commande.devise_id ? commande.devise_id.symbole || commande.devise_id.code : '';
   // Frais de livraison du pays : dus en plus du solde, jusqu'à la livraison.
-  const fraisLivraison = commande.statut_livraison === 'Livree' ? 0 : Number(commande.pays_id && commande.pays_id.frais_livraison) || 0;
+  // Un client qui a payé le bijou + les frais d'avance a un surplus : ce sont ses
+  // frais de livraison déjà réglés, à déduire de ce qu'il reste à prévoir.
+  const surplus = reste.isNegative() ? reste.negated().toNumber() : 0;
+  const fraisStandard = Number(commande.pays_id && commande.pays_id.frais_livraison) || 0;
+  const fraisLivraison = commande.statut_livraison === 'Livree' ? 0 : Math.max(0, fraisStandard - surplus);
   const resteNumber = reste.isNegative() ? 0 : reste.toNumber();
 
   return {
@@ -183,6 +187,7 @@ async function suivre(numero, telephoneSaisi) {
       avance: avance.toNumber(),
       reste_a_payer: resteNumber,
       frais_livraison: fraisLivraison,
+      frais_regles: surplus,
       a_prevoir_livraison: resteNumber + fraisLivraison,
       paiements: paiementsValides.map((p) => ({
         date: p.date_paiement,

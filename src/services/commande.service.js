@@ -260,7 +260,12 @@ async function obtenir(id) {
 function avecResteAPayer(commande) {
   const obj = commande.toObject ? commande.toObject() : commande;
   const totalPaiements = sum(obj.paiements.filter((p) => !p.annule).map((p) => p.montant));
-  obj.reste_a_payer = toDecimal(obj.total).minus(toDecimal(obj.reduction || 0)).minus(totalPaiements).toFixed(2);
+  const reste = toDecimal(obj.total).minus(toDecimal(obj.reduction || 0)).minus(totalPaiements);
+  // Un client qui règle d'avance le bijou PLUS les frais de livraison verse plus
+  // que le total : ce surplus n'est pas un « reste à payer négatif » mais les
+  // frais de livraison déjà réglés (retour terrain 06/10/2026).
+  obj.reste_a_payer = (reste.isNegative() ? toDecimal(0) : reste).toFixed(2);
+  obj.surplus_regle = (reste.isNegative() ? reste.negated() : toDecimal(0)).toFixed(2);
   return obj;
 }
 

@@ -21,7 +21,7 @@ const POPULATE_COMMANDE = {
   path: 'commande_id',
   populate: [
     { path: 'client_id', select: 'nom telephone_whatsapp adresse' },
-    { path: 'pays_id', select: 'code nom' },
+    { path: 'pays_id', select: 'code nom frais_livraison' },
     { path: 'lignes.produit_id', select: 'nom' },
   ],
 };
@@ -48,6 +48,12 @@ function formater(livraison) {
   if (!c || !c.numero) return { ...base, commande: null };
 
   const obj = commandeService.avecResteAPayer(c);
+  // Frais de livraison : tarif standard du pays, déjà réglés d'avance en tout
+  // ou partie si le client a versé plus que le prix du bijou (surplus). Ce qui
+  // reste dû est proposé au livreur comme valeur par défaut, qu'il peut changer
+  // (livraison à 2000, expédition à 3000...).
+  const fraisStandard = Number(obj.pays_id && obj.pays_id.frais_livraison) || 0;
+  const surplus = Number(obj.surplus_regle) || 0;
   return {
     ...base,
     commande: {
@@ -59,6 +65,9 @@ function formater(livraison) {
       total: String(obj.total),
       reduction: String(obj.reduction || 0),
       reste_a_payer: obj.reste_a_payer,
+      surplus_regle: obj.surplus_regle,
+      frais_livraison_standard: fraisStandard,
+      frais_livraison_du: Math.max(0, fraisStandard - surplus),
       client: obj.client_id
         ? {
             nom: obj.client_id.nom,
