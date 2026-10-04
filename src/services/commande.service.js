@@ -637,6 +637,22 @@ async function changerStatutLivraison(id, nouveauStatut) {
   }
 
   commande.statut_livraison = nouveauStatut;
+  if (nouveauStatut !== 'Livree') {
+    // Sortir une commande de « Livrée » (remise « En livraison » à la main pour
+    // faire refaire la livraison au livreur) : les entrées du calendrier qui la
+    // portaient comme effectuée sont réinitialisées, sinon elles resteraient
+    // cochées « Livrée » avec les anciens montants. Le paiement déjà enregistré
+    // sur la commande n'est pas touché — à annuler à part si besoin.
+    commande.date_livraison = undefined;
+    const Livraison = require('../models/Livraison');
+    const effectuees = await Livraison.find({ commande_id: commande._id, livree: true });
+    for (const entree of effectuees) {
+      await Livraison.findOneAndUpdate(
+        { _id: entree._id, pays_id: entree.pays_id },
+        { livree: false, livree_le: null, livree_par: null, montant_recu: toDecimal128(0), frais_livraison: toDecimal128(0) }
+      );
+    }
+  }
   if (nouveauStatut === 'Recue_en_pays') {
     if (!commande.date_recue_en_pays) commande.date_recue_en_pays = new Date();
   } else if (nouveauStatut === 'En_livraison') commande.date_debut_livraison = new Date();

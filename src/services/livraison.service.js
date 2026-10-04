@@ -28,15 +28,21 @@ const POPULATE_COMMANDE = {
 
 function formater(livraison) {
   const c = livraison.commande_id;
+  // Le statut de la commande fait foi (retour terrain 05/10/2026) : si l'équipe
+  // remet la commande « En livraison » à la main pour faire refaire la
+  // livraison, l'entrée ne doit plus s'afficher « Livrée » — et inversement une
+  // commande livrée par un autre chemin est bien livrée. Le drapeau de l'entrée
+  // ne sert de repli que si la commande a été supprimée.
+  const livree = c && c.numero ? c.statut_livraison === 'Livree' : !!livraison.livree;
   const base = {
     _id: livraison._id,
     jour: livraison.jour,
     createdAt: livraison.createdAt,
-    livree: !!livraison.livree,
-    livree_le: livraison.livree_le || null,
-    livree_par: livraison.livree_par && livraison.livree_par.nom ? livraison.livree_par.nom : null,
-    montant_recu: String(livraison.montant_recu || 0),
-    frais_livraison: String(livraison.frais_livraison || 0),
+    livree,
+    livree_le: livree ? livraison.livree_le || null : null,
+    livree_par: livree && livraison.livree_par && livraison.livree_par.nom ? livraison.livree_par.nom : null,
+    montant_recu: livree ? String(livraison.montant_recu || 0) : '0',
+    frais_livraison: livree ? String(livraison.frais_livraison || 0) : '0',
   };
   // Commande supprimée depuis : l'entrée reste visible pour pouvoir être retirée.
   if (!c || !c.numero) return { ...base, commande: null };
@@ -158,7 +164,10 @@ async function planifier({ commande_id, jour }, req) {
 async function retirer(id) {
   const livraison = await Livraison.findById(id);
   if (!livraison) throw ApiError.notFound('Livraison introuvable');
-  if (livraison.livree) throw ApiError.conflict('Cette livraison est déjà marquée livrée, elle ne peut plus être retirée');
+  const commandeCible = await Commande.findById(livraison.commande_id);
+  if (commandeCible && commandeCible.statut_livraison === 'Livree') {
+    throw ApiError.conflict('Cette livraison est déjà marquée livrée, elle ne peut plus être retirée');
+  }
 
   // findOneAndDelete (et non deleteOne d'instance) pour que le journal d'activité
   // enregistre la suppression et son auteur.
@@ -184,7 +193,11 @@ async function retirer(id) {
 async function marquerLivree(id, { montant_recu, moyen_paiement, frais_livraison }, req) {
   const livraison = await Livraison.findById(id);
   if (!livraison) throw ApiError.notFound('Livraison introuvable');
-  if (livraison.livree) throw ApiError.conflict('Cette livraison est déjà marquée livrée');
+  const commandeCible = await Commande.findById(livraison.commande_id);
+  if (!commandeCible) throw ApiError.notFound('Commande introuvable');
+  // Refaire une livraison est permis tant que la commande n'est plus Livrée :
+  // l'équipe la remet « En livraison » pour que le livreur ressaisisse.
+  if (commandeCible.statut_livraison === 'Livree') throw ApiError.conflict('Cette livraison est déjà marquée livrée');
 
   const montant = toDecimal(montant_recu || 0);
   const frais = toDecimal(frais_livraison || 0);
@@ -217,7 +230,8 @@ async function marquerLivree(id, { montant_recu, moyen_paiement, frais_livraison
 async function signalerProbleme(id, req) {
   const livraison = await Livraison.findById(id);
   if (!livraison) throw ApiError.notFound('Livraison introuvable');
-  if (livraison.livree) throw ApiError.conflict('Cette livraison est déjà marquée livrée');
+  const commandeCible = await Commande.findById(livraison.commande_id);
+  if (commandeCible && commandeCible.statut_livraison === 'Livree') throw ApiError.conflict('Cette livraison est déjà marquée livrée');
 
   await commandeService.changerStatutLivraison(livraison.commande_id, 'Retour_echec');
 
