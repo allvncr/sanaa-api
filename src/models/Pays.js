@@ -17,6 +17,9 @@ const PaysSchema = new Schema(
     // quand le numéro du client est saisi en format local. Facultatif : un
     // repli par code pays existe côté frontend (utils/whatsapp.js).
     indicatif: { type: String, trim: true },
+    // Frais de livraison standard du pays (devise locale), à régler en plus du
+    // solde de la commande au moment de la livraison. Facultatif.
+    frais_livraison: { type: Number, min: 0 },
     moyens_paiement: { type: [MoyenPaiementSchema], default: [] },
     est_pays_historique_sans_suffixe: { type: Boolean, default: false },
     ca_statuts_inclus: {

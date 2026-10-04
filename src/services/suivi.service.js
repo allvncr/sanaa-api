@@ -142,6 +142,7 @@ async function suivre(numero, telephoneSaisi) {
   const commande = await Commande.findOne({ numero: numeroNormalise })
     .populate('client_id', 'nom telephone_whatsapp adresse')
     .populate('devise_id', 'symbole code')
+    .populate('pays_id', 'frais_livraison')
     .populate('lignes.produit_id', 'nom');
   if (!commande) throw ApiError.notFound(MESSAGE_INTROUVABLE);
 
@@ -156,6 +157,9 @@ async function suivre(numero, telephoneSaisi) {
   const totalNet = toDecimal(commande.total).minus(reduction);
   const reste = totalNet.minus(avance);
   const devise = commande.devise_id ? commande.devise_id.symbole || commande.devise_id.code : '';
+  // Frais de livraison du pays : dus en plus du solde, jusqu'à la livraison.
+  const fraisLivraison = commande.statut_livraison === 'Livree' ? 0 : Number(commande.pays_id && commande.pays_id.frais_livraison) || 0;
+  const resteNumber = reste.isNegative() ? 0 : reste.toNumber();
 
   return {
     numero: commande.numero,
@@ -177,7 +181,9 @@ async function suivre(numero, telephoneSaisi) {
       reduction: reduction.toNumber(),
       total_net: totalNet.toNumber(),
       avance: avance.toNumber(),
-      reste_a_payer: reste.isNegative() ? 0 : reste.toNumber(),
+      reste_a_payer: resteNumber,
+      frais_livraison: fraisLivraison,
+      a_prevoir_livraison: resteNumber + fraisLivraison,
       paiements: paiementsValides.map((p) => ({
         date: p.date_paiement,
         montant: toDecimal(p.montant).toNumber(),
