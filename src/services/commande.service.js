@@ -260,7 +260,10 @@ async function obtenir(id) {
 function avecResteAPayer(commande) {
   const obj = commande.toObject ? commande.toObject() : commande;
   const totalPaiements = sum(obj.paiements.filter((p) => !p.annule).map((p) => p.montant));
-  const reste = toDecimal(obj.total).minus(toDecimal(obj.reduction || 0)).minus(totalPaiements);
+  const reste = toDecimal(obj.total)
+    .minus(toDecimal(obj.reduction || 0))
+    .minus(toDecimal(obj.ajustement_livraison || 0))
+    .minus(totalPaiements);
   // Un client qui règle d'avance le bijou PLUS les frais de livraison verse plus
   // que le total : ce surplus n'est pas un « reste à payer négatif » mais les
   // frais de livraison déjà réglés (retour terrain 06/10/2026).
@@ -649,12 +652,17 @@ async function changerStatutLivraison(id, nouveauStatut) {
     // cochées « Livrée » avec les anciens montants. Le paiement déjà enregistré
     // sur la commande n'est pas touché — à annuler à part si besoin.
     commande.date_livraison = undefined;
+    commande.ajustement_livraison = toDecimal128(0);
     const Livraison = require('../models/Livraison');
     const effectuees = await Livraison.find({ commande_id: commande._id, livree: true });
     for (const entree of effectuees) {
       await Livraison.findOneAndUpdate(
         { _id: entree._id, pays_id: entree.pays_id },
-        { livree: false, livree_le: null, livree_par: null, montant_recu: toDecimal128(0), frais_livraison: toDecimal128(0) }
+        {
+          livree: false, livree_le: null, livree_par: null,
+          montant_recu: toDecimal128(0), frais_livraison: toDecimal128(0),
+          total_recu_client: toDecimal128(0), surcout_livraison: toDecimal128(0),
+        }
       );
     }
   }

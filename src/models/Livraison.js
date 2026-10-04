@@ -29,6 +29,12 @@ const LivraisonSchema = new Schema(
     // hors reste à payer : ne touche jamais commande.paiements, sert seulement
     // au rapprochement (section 6.2 étendue).
     frais_livraison: { type: Schema.Types.Decimal128, default: 0 },
+    // Total réellement encaissé auprès du client (solde + frais) : ce que le
+    // livreur a eu en main. montant_recu = la part qui revient à SANAA
+    // (total - frais gardés par le livreur). surcout_livraison = écart de frais
+    // supporté par SANAA (voir commande.ajustement_livraison).
+    total_recu_client: { type: Schema.Types.Decimal128, default: 0 },
+    surcout_livraison: { type: Schema.Types.Decimal128, default: 0 },
   },
   { timestamps: true }
 );

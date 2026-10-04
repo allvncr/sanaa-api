@@ -86,6 +86,12 @@ const CommandeSchema = new Schema(
     // Réduction optionnelle sur le total de la commande (retour V0.1) — dans la
     // devise de la commande, déduite du total pour le calcul du reste à payer.
     reduction: { type: Schema.Types.Decimal128, default: 0 },
+    // Écart de frais de livraison supporté par SANAA (06/10/2026) : le client
+    // paie le montant annoncé (solde + frais standard) mais le livreur peut
+    // garder davantage (zone à 2000, expédition à 3000...). La différence est
+    // retirée de ce que SANAA encaisse, pas du client ni du livreur : elle
+    // solde d'autant le reste à payer. Négatif si le livreur a gardé moins.
+    ajustement_livraison: { type: Schema.Types.Decimal128, default: 0 },
     devise_id: { type: Schema.Types.ObjectId, ref: 'Devise' },
     commentaires: { type: String },
     cree_par: { type: Schema.Types.ObjectId, ref: 'Utilisateur' },

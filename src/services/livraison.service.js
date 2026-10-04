@@ -43,6 +43,12 @@ function formater(livraison) {
     livree_par: livree && livraison.livree_par && livraison.livree_par.nom ? livraison.livree_par.nom : null,
     montant_recu: livree ? String(livraison.montant_recu || 0) : '0',
     frais_livraison: livree ? String(livraison.frais_livraison || 0) : '0',
+    // Anciennes livraisons (avant la règle de caisse) : pas de total stocké, il
+    // se déduit de la part SANAA + frais gardés.
+    total_recu_client: livree
+      ? String(Number(String(livraison.total_recu_client || 0)) || Number(String(livraison.montant_recu || 0)) + Number(String(livraison.frais_livraison || 0)))
+      : '0',
+    surcout_livraison: livree ? String(livraison.surcout_livraison || 0) : '0',
   };
   // Commande supprimée depuis : l'entrée reste visible pour pouvoir être retirée.
   if (!c || !c.numero) return { ...base, commande: null };
@@ -199,19 +205,43 @@ async function retirer(id) {
  * reste à payer) et enregistre séparément les frais de livraison perçus par le
  * livreur, qui n'en font jamais partie (retour V0.1, 26/09/2026).
  */
-async function marquerLivree(id, { montant_recu, moyen_paiement, frais_livraison }, req) {
+async function marquerLivree(id, { montant_recu, total_recu_client, moyen_paiement, frais_livraison }, req) {
   const livraison = await Livraison.findById(id);
   if (!livraison) throw ApiError.notFound('Livraison introuvable');
-  const commandeCible = await Commande.findById(livraison.commande_id);
+  const commandeCible = await Commande.findById(livraison.commande_id).populate('pays_id', 'frais_livraison');
   if (!commandeCible) throw ApiError.notFound('Commande introuvable');
   // Refaire une livraison est permis tant que la commande n'est plus Livrée :
   // l'équipe la remet « En livraison » pour que le livreur ressaisisse.
   if (commandeCible.statut_livraison === 'Livree') throw ApiError.conflict('Cette livraison est déjà marquée livrée');
 
-  const montant = toDecimal(montant_recu || 0);
   const frais = toDecimal(frais_livraison || 0);
-  if (montant.lt(0) || frais.lt(0)) throw ApiError.badRequest('Les montants ne peuvent pas être négatifs');
-  if (montant.gt(0) && !String(moyen_paiement || '').trim()) {
+  if (frais.lt(0)) throw ApiError.badRequest('Les montants ne peuvent pas être négatifs');
+
+  // Règle de caisse (06/10/2026) : le client paie le montant annoncé (solde +
+  // frais standard) ; le livreur garde les frais réels de sa zone ; SANAA
+  // encaisse le reste (total reçu - frais gardés). L'écart entre frais réels et
+  // frais annoncés est supporté par SANAA : il solde d'autant la commande
+  // (ajustement_livraison) au lieu de rester « à payer ».
+  // Ancien format (montant_recu = solde seul, frais en plus) conservé pour un
+  // écran resté ouvert pendant la mise à jour.
+  let montant;
+  let total;
+  let ajustement = toDecimal(0);
+  if (total_recu_client !== undefined && total_recu_client !== null) {
+    total = toDecimal(total_recu_client);
+    if (total.lt(0)) throw ApiError.badRequest('Les montants ne peuvent pas être négatifs');
+    if (frais.gt(total)) throw ApiError.badRequest('Les frais de livraison ne peuvent pas dépasser le montant reçu du client');
+    montant = total.minus(frais);
+    const fraisStandard = toDecimal(commandeCible.pays_id && commandeCible.pays_id.frais_livraison ? commandeCible.pays_id.frais_livraison : 0);
+    const surplus = toDecimal(commandeService.avecResteAPayer(commandeCible).surplus_regle);
+    const fraisAnnonces = fraisStandard.minus(surplus).gt(0) ? fraisStandard.minus(surplus) : toDecimal(0);
+    ajustement = frais.minus(fraisAnnonces);
+  } else {
+    montant = toDecimal(montant_recu || 0);
+    if (montant.lt(0)) throw ApiError.badRequest('Les montants ne peuvent pas être négatifs');
+    total = montant.plus(frais);
+  }
+  if (total.gt(0) && !String(moyen_paiement || '').trim()) {
     throw ApiError.badRequest('Indiquez le moyen de paiement reçu');
   }
 
@@ -223,12 +253,19 @@ async function marquerLivree(id, { montant_recu, moyen_paiement, frais_livraison
     );
   }
   await commandeService.changerStatutLivraison(livraison.commande_id, 'Livree');
+  if (!ajustement.isZero()) {
+    const aSolder = await Commande.findById(livraison.commande_id);
+    aSolder.ajustement_livraison = toDecimal128(ajustement);
+    await aSolder.save();
+  }
 
   livraison.livree = true;
   livraison.livree_le = new Date();
   livraison.livree_par = req.user.id;
   livraison.montant_recu = toDecimal128(montant);
   livraison.frais_livraison = toDecimal128(frais);
+  livraison.total_recu_client = toDecimal128(total);
+  livraison.surcout_livraison = toDecimal128(ajustement);
   await livraison.save();
 
   const complete = await Livraison.findById(livraison._id).populate(POPULATE_COMMANDE).populate('livree_par', 'nom');

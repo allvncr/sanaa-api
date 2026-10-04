@@ -155,7 +155,7 @@ async function suivre(numero, telephoneSaisi) {
   const avance = sum(paiementsValides.map((p) => p.montant));
   const reduction = toDecimal(commande.reduction || 0);
   const totalNet = toDecimal(commande.total).minus(reduction);
-  const reste = totalNet.minus(avance);
+  const reste = totalNet.minus(toDecimal(commande.ajustement_livraison || 0)).minus(avance);
   const devise = commande.devise_id ? commande.devise_id.symbole || commande.devise_id.code : '';
   // Frais de livraison du pays : dus en plus du solde, jusqu'à la livraison.
   // Un client qui a payé le bijou + les frais d'avance a un surplus : ce sont ses
