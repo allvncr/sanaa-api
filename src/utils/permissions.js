@@ -16,6 +16,9 @@ const PERMISSIONS = {
   exports: ['generer', 'telecharger', 'regenerer'],
   dashboard: ['voir_pays', 'voir_global', 'comparer_pays'],
   journal_activite: ['voir'],
+  // Tableau « À traiter aujourd'hui » : réservé au Super administrateur pour
+  // l'instant (retour du 09/10/2026).
+  a_traiter: ['voir'],
   parametres: ['gerer_taux_change', 'gerer_moyens_paiement'],
 };
 
@@ -34,7 +37,7 @@ const ROLES_PAR_DEFAUT = [
     portee: 'pays',
     permissions: ALL_PERMISSIONS.filter(
       (p) =>
-        !['pays:creer', 'pays:supprimer', 'catalogue:supprimer', 'parametres:gerer_taux_change'].includes(p)
+        !['pays:creer', 'pays:supprimer', 'catalogue:supprimer', 'parametres:gerer_taux_change', 'a_traiter:voir'].includes(p)
     ),
   },
   {
