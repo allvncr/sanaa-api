@@ -83,32 +83,57 @@ async function convertirEtSommer(items, deviseSourceId, deviseCibleId) {
   return total;
 }
 
+/**
+ * Le chiffre d'affaires du dashboard se compte sur les COLIS LIVRÉS, à leur date
+ * de livraison (retour du 09/10/2026) : avant, CA, encaissements et reste à
+ * recevoir partaient de dates différentes (création de la commande, date de
+ * chaque paiement) et ne se recoupaient jamais. Une commande livrée sans date de
+ * livraison enregistrée (anciennes données) retombe sur sa date de création.
+ */
+function filtreColisLivres(paysFiltre, debut, fin, statutsInclus) {
+  const filtre = {
+    pays_id: paysFiltre,
+    statut_livraison: 'Livree',
+    $or: [
+      { date_livraison: { $gte: debut, $lte: fin } },
+      { date_livraison: null, createdAt: { $gte: debut, $lte: fin } },
+    ],
+  };
+  if (statutsInclus) filtre.statut_commande = { $in: statutsInclus };
+  return filtre;
+}
+
+/**
+ * Pour un colis livré : ce que SANAA devait en tirer (total - réduction - écart
+ * de frais de livraison supporté), ce qui est déjà encaissé dessus et ce qui
+ * reste. CA = encaissé + reste, toujours. Un surplus versé d'avance pour les
+ * frais de livraison n'est pas du chiffre d'affaires : l'encaissé est plafonné
+ * au dû.
+ */
+function bilanColis(c) {
+  const du = toDecimal(c.total).minus(toDecimal(c.reduction || 0)).minus(toDecimal(c.ajustement_livraison || 0));
+  const paye = sum(c.paiements.filter((p) => !p.annule).map((p) => p.montant));
+  const encaisse = paye.lt(du) ? paye : du;
+  return { du, encaisse, reste: du.minus(encaisse), date: c.date_livraison || c.createdAt };
+}
+
 async function kpisBrutsPays(paysId, debut, fin) {
   const pays = await Pays.findById(paysId);
   if (!pays) throw new Error('Pays introuvable');
 
+  // Commandes passées sur la période : sert aux comptages et aux taux.
   const commandes = await Commande.find({ pays_id: paysId, createdAt: { $gte: debut, $lte: fin } });
   const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
 
-  const commandesCA = commandes.filter((c) => statutsInclus.includes(c.statut_commande));
-  const ca = { montant: sum(commandesCA.map((c) => c.total)), devise_id: pays.devise_locale_id };
+  // Colis livrés sur la période : base de CA, encaissé, reste à recevoir.
+  const colis = (await Commande.find(filtreColisLivres(paysId, debut, fin, statutsInclus))).map((c) => ({ c, ...bilanColis(c) }));
+  const commandesCA = colis;
+  const ca = { montant: sum(colis.map((k) => k.du)), devise_id: pays.devise_locale_id };
 
-  const paiementsDatés = [];
-  for (const c of commandes) {
-    for (const p of c.paiements) {
-      if (!p.annule && p.date_paiement >= debut && p.date_paiement <= fin) {
-        paiementsDatés.push({ montant: p.montant, date: p.date_paiement });
-      }
-    }
-  }
+  const paiementsDatés = colis.map((k) => ({ montant: k.encaisse, date: k.date }));
   const encaissements = { montant: sum(paiementsDatés.map((p) => p.montant)), devise_id: pays.devise_locale_id };
 
-  const resteARecevoir = sum(
-    commandesCA.map((c) => {
-      const paye = sum(c.paiements.filter((p) => !p.annule).map((p) => p.montant));
-      return toDecimal(c.total).minus(toDecimal(c.reduction || 0)).minus(paye);
-    })
-  );
+  const resteARecevoir = sum(colis.map((k) => k.reste));
 
   const depenses = await Depense.find({ pays_id: paysId, date: { $gte: debut, $lte: fin } });
   const totalDepenses = { montant: sum(depenses.map((d) => d.montant)), devise_id: pays.devise_locale_id };
@@ -131,11 +156,13 @@ async function kpisBrutsPays(paysId, debut, fin) {
     benefice: { montant: benefice, devise_id: pays.devise_locale_id },
     marge_pct: marge.toFixed(2),
     nombre_commandes: commandes.length,
+    nombre_commandes_livrees: livrees,
+    nombre_colis_livres: colis.length,
     taux_livraison_pct: ((livrees / totalCommandes) * 100).toFixed(2),
     taux_annulation_pct: ((annulees / totalCommandes) * 100).toFixed(2),
     taux_retour_pct: ((retours / totalCommandes) * 100).toFixed(2),
     _paiements: paiementsDatés,
-    _commandesCA: commandesCA.map((c) => ({ montant: c.total, date: c.createdAt })),
+    _commandesCA: commandesCA.map((k) => ({ montant: k.du, date: k.date })),
     _depenses: depenses.map((d) => ({ montant: d.montant, date: d.date })),
   };
 }
@@ -242,7 +269,8 @@ async function performanceProduits({ pays_id, periode, date, periode_debut, peri
   const obtenirTaux = creerCacheTaux();
 
   const lignes = await Commande.aggregate([
-    { $match: { pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } } },
+    // Colis livrés, à leur date de livraison (voir filtreColisLivres).
+    { $match: { ...filtreColisLivres({ $in: paysIds }, debut, fin), statut_commande: { $nin: ['Annulee', 'Refusee'] } } },
     { $unwind: '$lignes' },
     {
       $project: {
@@ -251,7 +279,7 @@ async function performanceProduits({ pays_id, periode, date, periode_debut, peri
         quantite: '$lignes.quantite',
         sous_total: '$lignes.sous_total',
         pays_id: 1,
-        createdAt: 1,
+        createdAt: { $ifNull: ['$date_livraison', '$createdAt'] },
       },
     },
   ]);
@@ -303,20 +331,18 @@ async function evolutionCA({ pays_id, periode, date, periode_debut, periode_fin,
   const points = new Map();
   for (const pays of paysListe) {
     const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
-    const commandes = await Commande.find({
-      pays_id: pays._id,
-      createdAt: { $gte: debut, $lte: fin },
-      statut_commande: { $in: statutsInclus },
-    }).select('total createdAt').lean();
+    // Colis livrés, à leur date de livraison (voir filtreColisLivres).
+    const commandes = await Commande.find(filtreColisLivres(pays._id, debut, fin, statutsInclus)).lean();
 
     for (const c of commandes) {
-      let montant = toDecimal(c.total);
+      const { du, date } = bilanColis(c);
+      let montant = du;
       if (deviseCible) {
-        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
+        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, date);
         if (taux === null) continue;
         montant = montant.times(taux);
       }
-      const cle = formaterDatePeriode(c.createdAt, parMois);
+      const cle = formaterDatePeriode(date, parMois);
       const entree = points.get(cle) || { ca: toDecimal(0), nombre_commandes: 0 };
       entree.ca = entree.ca.plus(montant);
       entree.nombre_commandes += 1;
@@ -433,19 +459,19 @@ async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, per
   for (const pays of paysListe) {
     const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
     const [commandes, depenses] = await Promise.all([
-      Commande.find({ pays_id: pays._id, createdAt: { $gte: debut, $lte: fin }, statut_commande: { $in: statutsInclus } })
-        .select('total createdAt').lean(),
+      Commande.find(filtreColisLivres(pays._id, debut, fin, statutsInclus)).lean(),
       Depense.find({ pays_id: pays._id, date: { $gte: debut, $lte: fin } }).select('montant categorie_id date').lean(),
     ]);
 
     for (const c of commandes) {
-      let montant = toDecimal(c.total);
+      const { du, date } = bilanColis(c);
+      let montant = du;
       if (deviseCible) {
-        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
+        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, date);
         if (taux === null) continue;
         montant = montant.times(taux);
       }
-      accumuler(formaterDatePeriode(c.createdAt, parMois), 'ca', montant);
+      accumuler(formaterDatePeriode(date, parMois), 'ca', montant);
     }
     for (const d of depenses) {
       let montant = toDecimal(d.montant);
