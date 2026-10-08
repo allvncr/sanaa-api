@@ -7,6 +7,7 @@ const lister = asyncHandler(async (req, res) => {
   sendList(res, items, meta);
 });
 const createurs = asyncHandler(async (req, res) => sendList(res, await service.createurs(req.query)));
+const compteursStatuts = asyncHandler(async (req, res) => sendOne(res, await service.compterParStatut(req.query)));
 const obtenir =asyncHandler(async (req, res) => sendOne(res, await service.obtenir(req.params.id)));
 const creer = asyncHandler(async (req, res) => sendOne(res, await service.creer(req.body, req), 201));
 const modifier = asyncHandler(async (req, res) => sendOne(res, await service.modifier(req.params.id, req.body, req)));
@@ -47,6 +48,7 @@ const encaissementsJour = asyncHandler(async (req, res) =>
 module.exports = {
   lister,
   createurs,
+  compteursStatuts,
   obtenir,
   creer,
   modifier,

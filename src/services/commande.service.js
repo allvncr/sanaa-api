@@ -181,8 +181,8 @@ function pagination({ page, limite } = {}) {
  * (pour retrouver une commande déjà saisie) ; `cree_par` filtre sur
  * l'utilisateur qui a saisi la commande.
  */
-async function lister({
-  pays_id, statut, statut_fabrication, statut_livraison, date_de, date_a, client_id, q, cree_par, page, limite,
+async function construireFiltre({
+  pays_id, statut, statut_fabrication, statut_livraison, date_de, date_a, client_id, q, cree_par,
 } = {}) {
   const filtre = {};
   if (pays_id) filtre.pays_id = pays_id;
@@ -219,6 +219,15 @@ async function lister({
       { 'lignes.personnalisation.texte': regex },
     ];
   }
+  return filtre;
+}
+
+async function lister({
+  pays_id, statut, statut_fabrication, statut_livraison, date_de, date_a, client_id, q, cree_par, page, limite,
+} = {}) {
+  const filtre = await construireFiltre({
+    pays_id, statut, statut_fabrication, statut_livraison, date_de, date_a, client_id, q, cree_par,
+  });
 
   const { page: p, limite: l, skip } = pagination({ page, limite });
   const [items, total] = await Promise.all([
@@ -231,6 +240,41 @@ async function lister({
     Commande.countDocuments(filtre),
   ]);
   return { items, meta: { page: p, limite: l, total } };
+}
+
+/**
+ * Nombre de commandes par statut (commande, fabrication, livraison) pour les
+ * filtres de l'écran Commandes (retour du 09/10/2026) : les vraies valeurs et
+ * leurs effectifs, selon les AUTRES filtres actifs (recherche, pays, dates,
+ * saisi par, et les deux autres statuts) — le compteur d'un statut ne tient
+ * pas compte de son propre filtre, sinon choisir « Livrée » mettrait tous les
+ * autres choix à zéro.
+ */
+async function compterParStatut(params = {}) {
+  const { statut, statut_fabrication, statut_livraison, ...base } = params;
+  const cast = (f) => {
+    const out = { ...f };
+    for (const cle of ['pays_id', 'cree_par', 'client_id']) {
+      if (out[cle] && typeof out[cle] === 'string') out[cle] = new mongoose.Types.ObjectId(out[cle]);
+    }
+    return out;
+  };
+  const filtreBase = cast(await construireFiltre(base));
+  const autres = { statut_commande: statut, statut_fabrication, statut_livraison };
+
+  const facette = async (champ) => {
+    const match = { ...filtreBase };
+    for (const [cle, valeur] of Object.entries(autres)) {
+      if (cle !== champ && valeur) match[cle] = Array.isArray(valeur) ? { $in: valeur } : valeur;
+    }
+    const groupes = await Commande.aggregate([{ $match: match }, { $group: { _id: `$${champ}`, total: { $sum: 1 } } }]);
+    return Object.fromEntries(groupes.map((g) => [g._id, g.total]));
+  };
+
+  const [commande, fabrication, livraison] = await Promise.all([
+    facette('statut_commande'), facette('statut_fabrication'), facette('statut_livraison'),
+  ]);
+  return { commande, fabrication, livraison };
 }
 
 /**
@@ -874,6 +918,7 @@ module.exports = {
   lister,
   obtenir,
   createurs,
+  compterParStatut,
   modifier,
   supprimer,
   historique,
