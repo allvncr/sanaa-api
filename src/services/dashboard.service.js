@@ -90,28 +90,34 @@ async function kpisBrutsPays(paysId, debut, fin) {
   const commandes = await Commande.find({ pays_id: paysId, createdAt: { $gte: debut, $lte: fin } });
   const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
 
+  // Retour du 09/10/2026 : le CA compte TOUTES les commandes passées sur la
+  // période (net de réduction), pas seulement les livrées — il doit rester fixe
+  // d'un jour à l'autre pour un mois donné. Perçu et reste portent sur ces
+  // mêmes commandes, donc CA = perçu + reste + surcoûts de livraison.
   const commandesCA = commandes.filter((c) => statutsInclus.includes(c.statut_commande));
-  const ca = { montant: sum(commandesCA.map((c) => c.total)), devise_id: pays.devise_locale_id };
+  const bilans = commandesCA.map((c) => {
+    const net = toDecimal(c.total).minus(toDecimal(c.reduction || 0));
+    const paye = sum(c.paiements.filter((p) => !p.annule).map((p) => p.montant));
+    const surcout = toDecimal(c.ajustement_livraison || 0);
+    const percu = paye.lt(net) ? paye : net; // un surplus versé pour les frais de livraison n'est pas du CA
+    const reste = net.minus(surcout).minus(paye);
+    return { c, net, percu, surcout, reste: reste.isNegative() ? toDecimal(0) : reste };
+  });
+  const ca = { montant: sum(bilans.map((b) => b.net)), devise_id: pays.devise_locale_id };
 
-  const paiementsDatés = [];
-  for (const c of commandes) {
-    for (const p of c.paiements) {
-      if (!p.annule && p.date_paiement >= debut && p.date_paiement <= fin) {
-        paiementsDatés.push({ montant: p.montant, date: p.date_paiement });
-      }
-    }
-  }
+  const paiementsDatés = bilans.map((b) => ({ montant: b.percu, date: b.c.createdAt }));
   const encaissements = { montant: sum(paiementsDatés.map((p) => p.montant)), devise_id: pays.devise_locale_id };
 
-  const resteARecevoir = sum(
-    commandesCA.map((c) => {
-      const paye = sum(c.paiements.filter((p) => !p.annule).map((p) => p.montant));
-      return toDecimal(c.total).minus(toDecimal(c.reduction || 0)).minus(paye);
-    })
-  );
+  const resteARecevoir = sum(bilans.map((b) => b.reste));
 
+  // Écart de frais de livraison supporté par SANAA : un coût réel, compté avec
+  // les dépenses pour que le bénéfice reflète l'argent réellement gardé.
+  const surcoutsLivraison = sum(bilans.map((b) => b.surcout));
   const depenses = await Depense.find({ pays_id: paysId, date: { $gte: debut, $lte: fin } });
-  const totalDepenses = { montant: sum(depenses.map((d) => d.montant)), devise_id: pays.devise_locale_id };
+  const totalDepenses = {
+    montant: sum(depenses.map((d) => d.montant)).plus(surcoutsLivraison),
+    devise_id: pays.devise_locale_id,
+  };
 
   const benefice = ca.montant.minus(totalDepenses.montant);
   const marge = ca.montant.gt(0) ? benefice.div(ca.montant).times(100) : toDecimal(0);
@@ -135,8 +141,12 @@ async function kpisBrutsPays(paysId, debut, fin) {
     taux_annulation_pct: ((annulees / totalCommandes) * 100).toFixed(2),
     taux_retour_pct: ((retours / totalCommandes) * 100).toFixed(2),
     _paiements: paiementsDatés,
-    _commandesCA: commandesCA.map((c) => ({ montant: c.total, date: c.createdAt })),
-    _depenses: depenses.map((d) => ({ montant: d.montant, date: d.date })),
+    surcouts_livraison: surcoutsLivraison.toFixed(2),
+    _commandesCA: bilans.map((b) => ({ montant: b.net, date: b.c.createdAt })),
+    _depenses: [
+      ...depenses.map((d) => ({ montant: d.montant, date: d.date })),
+      ...bilans.filter((b) => !b.surcout.isZero()).map((b) => ({ montant: b.surcout, date: b.c.createdAt })),
+    ],
   };
 }
 
@@ -307,10 +317,10 @@ async function evolutionCA({ pays_id, periode, date, periode_debut, periode_fin,
       pays_id: pays._id,
       createdAt: { $gte: debut, $lte: fin },
       statut_commande: { $in: statutsInclus },
-    }).select('total createdAt').lean();
+    }).select('total reduction createdAt').lean();
 
     for (const c of commandes) {
-      let montant = toDecimal(c.total);
+      let montant = toDecimal(c.total).minus(toDecimal(c.reduction || 0));
       if (deviseCible) {
         const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
         if (taux === null) continue;
@@ -406,6 +416,58 @@ async function nouveauxClients({ pays_id, periode, date, periode_debut, periode_
 }
 
 /**
+ * Dépenses de la période réparties par type (catégorie de dépense) — retour du
+ * 09/10/2026. Les surcoûts de livraison supportés par SANAA (frais gardés par
+ * le livreur au-delà de ceux annoncés au client) sont un coût réel : ils
+ * apparaissent comme un type à part, pour que le total corresponde à la carte
+ * « Dépenses ». En mode « tous les pays », chaque montant est converti vers
+ * devise_affichage au taux de sa date.
+ */
+async function repartitionDepenses({ pays_id, periode, date, periode_debut, periode_fin, devise_affichage }) {
+  const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
+  const paysListe = await paysCiblesPourAgregation(pays_id);
+  const deviseCible = pays_id ? null : await resoudreDeviseCible(devise_affichage);
+  const obtenirTaux = creerCacheTaux();
+
+  const categories = await CategorieDepense.find().select('nom').lean();
+  const nomParId = new Map(categories.map((c) => [String(c._id), c.nom]));
+  const parType = new Map();
+  const ajouter = (type, montant) => parType.set(type, (parType.get(type) || toDecimal(0)).plus(montant));
+
+  for (const pays of paysListe) {
+    const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+    const [depenses, commandes] = await Promise.all([
+      Depense.find({ pays_id: pays._id, date: { $gte: debut, $lte: fin } }).select('montant categorie_id date').lean(),
+      Commande.find({
+        pays_id: pays._id,
+        createdAt: { $gte: debut, $lte: fin },
+        statut_commande: { $in: statutsInclus },
+        ajustement_livraison: { $nin: [null, 0] },
+      }).select('ajustement_livraison createdAt').lean(),
+    ]);
+
+    const convertir = async (montant, dateRef) => {
+      if (!deviseCible) return montant;
+      const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, dateRef);
+      return taux === null ? null : montant.times(taux);
+    };
+    for (const d of depenses) {
+      const m = await convertir(toDecimal(d.montant), d.date);
+      if (m !== null) ajouter(nomParId.get(String(d.categorie_id)) || 'Autres', m);
+    }
+    for (const c of commandes) {
+      const m = await convertir(toDecimal(c.ajustement_livraison), c.createdAt);
+      if (m !== null) ajouter('Surcoût de livraison (pris en charge)', m);
+    }
+  }
+
+  return [...parType.entries()]
+    .map(([type, montant]) => ({ type, montant: Number(montant.toFixed(2)) }))
+    .filter((r) => r.montant !== 0)
+    .sort((a, b) => b.montant - a.montant);
+}
+
+/**
  * Analyse CA / Publicité / Dépenses (retour V0.1) : trois courbes sur les mêmes
  * périodes pour visualiser d'un coup d'œil la relation entre l'effort publicitaire,
  * les dépenses totales et le chiffre d'affaires généré. Les catégories de dépense
@@ -434,12 +496,12 @@ async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, per
     const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
     const [commandes, depenses] = await Promise.all([
       Commande.find({ pays_id: pays._id, createdAt: { $gte: debut, $lte: fin }, statut_commande: { $in: statutsInclus } })
-        .select('total createdAt').lean(),
+        .select('total reduction createdAt').lean(),
       Depense.find({ pays_id: pays._id, date: { $gte: debut, $lte: fin } }).select('montant categorie_id date').lean(),
     ]);
 
     for (const c of commandes) {
-      let montant = toDecimal(c.total);
+      let montant = toDecimal(c.total).minus(toDecimal(c.reduction || 0));
       if (deviseCible) {
         const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
         if (taux === null) continue;
@@ -481,4 +543,5 @@ module.exports = {
   repartitionCanal,
   nouveauxClients,
   analyseCaPubDepenses,
+  repartitionDepenses,
 };

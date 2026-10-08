@@ -37,5 +37,11 @@ router.get(
   scopePays('pays_id'),
   ctrl.analyseCaPubDepenses
 );
+router.get(
+  '/repartition-depenses',
+  requirePermission('dashboard:voir_pays'),
+  scopePays('pays_id'),
+  ctrl.repartitionDepenses
+);
 
 module.exports = router;

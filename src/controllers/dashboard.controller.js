@@ -21,7 +21,11 @@ const analyseCaPubDepenses = asyncHandler(async (req, res) =>
   sendOne(res, await service.analyseCaPubDepenses(req.query))
 );
 
-const listerAlertes = asyncHandler(async (req, res) => sendList(res, await alerteService.lister(req.query)));
+const repartitionDepenses = asyncHandler(async (req, res) =>
+  sendList(res, await service.repartitionDepenses(req.query))
+);
+
+const listerAlertes =asyncHandler(async (req, res) => sendList(res, await alerteService.lister(req.query)));
 const listerJournal = asyncHandler(async (req, res) => {
   const { items, meta } = await journalService.lister(req.query);
   sendList(res, items, meta);
@@ -36,6 +40,7 @@ module.exports = {
   repartitionCanal,
   nouveauxClients,
   analyseCaPubDepenses,
+  repartitionDepenses,
   listerAlertes,
   listerJournal,
 };
