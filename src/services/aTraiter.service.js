@@ -3,9 +3,9 @@ const Commande = require('../models/Commande');
 const Livraison = require('../models/Livraison');
 
 // Délais communiqués aux clients (mêmes que la page de suivi) : 7 jours de
-// fabrication après confirmation, 7 jours de transit après la fabrication.
+// fabrication après confirmation, 5 jours de transit après la fabrication.
 const JOURS_FABRICATION = 7;
-const JOURS_TRANSIT = 7;
+const JOURS_TRANSIT = 5;
 const LIMITE_PAR_SECTION = 50;
 const JOUR_MS = 24 * 60 * 60 * 1000;
 

@@ -33,7 +33,7 @@ function telephoneCorrespond(telephoneClient, telephoneSaisi) {
 // atteint, sa date réelle horodatée prend le pas sur l'estimation.
 const UN_JOUR_MS = 24 * 60 * 60 * 1000;
 const JOURS_FABRICATION = 7;
-const JOURS_TRANSIT = 7;
+const JOURS_TRANSIT = 5;
 
 function ajouterJours(date, jours) {
   return new Date(date.getTime() + jours * UN_JOUR_MS);
