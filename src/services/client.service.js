@@ -2,15 +2,25 @@ const Client = require('../models/Client');
 const Commande = require('../models/Commande');
 const ApiError = require('../utils/ApiError');
 const { sum, toDecimal } = require('../utils/money');
+const { normaliserTelephone, regexRechercheTelephone } = require('../utils/telephone');
 
 const LIMITE_DEFAUT = 20;
 const LIMITE_MAX = 100;
+
+/** Recherche texte : nom, ou numéro de téléphone sans tenir compte des espaces. */
+function conditionsRecherche(q) {
+  const texte = String(q).trim();
+  const conditions = [{ nom: new RegExp(texte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }];
+  const tel = regexRechercheTelephone(texte);
+  if (tel) conditions.push({ telephone_whatsapp: tel });
+  return conditions;
+}
 
 /** Liste des clients, paginée (écran Clients). */
 async function lister({ pays_id, q, page, limite } = {}) {
   const filtre = {};
   if (pays_id) filtre.pays_id = pays_id;
-  if (q) filtre.$or = [{ nom: new RegExp(q, 'i') }, { telephone_whatsapp: new RegExp(q, 'i') }];
+  if (q) filtre.$or = conditionsRecherche(q);
 
   const p = Math.max(1, Number(page) || 1);
   const l = Math.min(LIMITE_MAX, Math.max(1, Number(limite) || LIMITE_DEFAUT));
@@ -32,7 +42,8 @@ async function creer(data) {
  * client existe déjà, ses informations manquantes (nom, adresse) sont
  * complétées mais rien n'est jamais écrasé silencieusement.
  */
-async function trouverOuCreer({ pays_id, telephone_whatsapp, nom, adresse }) {
+async function trouverOuCreer({ pays_id, telephone_whatsapp: telephoneSaisi, nom, adresse }) {
+  const telephone_whatsapp = normaliserTelephone(telephoneSaisi);
   if (!telephone_whatsapp) {
     // Pas de téléphone fourni : impossible de dédoublonner, on crée un client dédié.
     return Client.create({ pays_id, telephone_whatsapp, nom, adresse });
@@ -82,4 +93,4 @@ async function historiqueCommandes(clientId) {
   };
 }
 
-module.exports = { lister, creer, modifier, trouverOuCreer, historiqueCommandes };
+module.exports = { conditionsRecherche, lister, creer, modifier, trouverOuCreer, historiqueCommandes };

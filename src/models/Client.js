@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 const paysScopePlugin = require('../plugins/paysScopePlugin');
 const activityLogPlugin = require('../plugins/activityLogPlugin');
+const { normaliserTelephone } = require('../utils/telephone');
 
 const ClientSchema = new Schema(
   {
@@ -10,7 +11,8 @@ const ClientSchema = new Schema(
     // et prénoms des clients — le numéro de téléphone est la clé d'identification
     // réelle (voir index ci-dessous et commande.service.js `trouverOuCreerClient`).
     nom: { type: String, trim: true },
-    telephone_whatsapp: { type: String, index: true },
+    // Stocké sans espaces (voir utils/telephone.js) : les variantes de saisie d'un même numéro ne créent plus de doublon.
+    telephone_whatsapp: { type: String, index: true, set: normaliserTelephone },
     ville: { type: String },
     adresse: { type: String },
     notes: { type: String },

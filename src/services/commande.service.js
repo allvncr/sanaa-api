@@ -10,6 +10,7 @@ const Client = require('../models/Client');
 const JournalActivite = require('../models/JournalActivite');
 const { construireEvenement, construireEvenementClient } = require('../utils/commandeHistorique');
 const clientService = require('./client.service');
+const { normaliserTelephone } = require('../utils/telephone');
 
 function mouvementsReservation(commande, utilisateurId) {
   return commande.lignes.map((ligne) => ({
@@ -211,7 +212,7 @@ async function construireFiltre({
     const regex = new RegExp(echapperRegex(recherche), 'i');
     const clients = await Client.find({
       ...(pays_id ? { pays_id } : {}),
-      $or: [{ nom: regex }, { telephone_whatsapp: regex }],
+      $or: clientService.conditionsRecherche(recherche),
     }).select('_id');
     filtre.$or = [
       { numero: regex },
@@ -431,8 +432,8 @@ async function modifier(id, data, req) {
   if (data.client) {
     const { nom, adresse, telephone_whatsapp } = data.client;
     const actuel = await Client.findById(commande.client_id);
-    const nouveauTel = telephone_whatsapp ? String(telephone_whatsapp).trim() : '';
-    if (nouveauTel && (!actuel || nouveauTel !== (actuel.telephone_whatsapp || ''))) {
+    const nouveauTel = normaliserTelephone(telephone_whatsapp) || '';
+    if (nouveauTel && (!actuel || nouveauTel !== (normaliserTelephone(actuel.telephone_whatsapp) || ''))) {
       // Autre numéro = autre client : retrouvé (ou créé) par téléphone dans le pays.
       const client = await clientService.trouverOuCreer({
         pays_id: commande.pays_id,
