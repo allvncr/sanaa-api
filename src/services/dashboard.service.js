@@ -468,12 +468,18 @@ async function repartitionDepenses({ pays_id, periode, date, periode_debut, peri
 }
 
 /**
- * Analyse CA / Publicité / Dépenses (retour V0.1) : trois courbes sur les mêmes
- * périodes pour visualiser d'un coup d'œil la relation entre l'effort publicitaire,
- * les dépenses totales et le chiffre d'affaires généré. Les catégories de dépense
- * "publicité" sont repérées par leur nom (elles sont librement renommables/
- * ajoutables par SANAA — voir catalogue.service.js — donc pas d'ID en dur).
+ * Suivi CA / Publicité / Confection (retour V0.1, repris le 22/10/2026) : trois
+ * séries sur les mêmes périodes pour relier l'effort publicitaire et le coût de
+ * confection au chiffre d'affaires généré (les dépenses totales écrasaient
+ * l'échelle : on ne suit que les deux postes demandés). Les catégories de dépense
+ * sont repérées par leur nom (librement renommables/ajoutables par SANAA — voir
+ * catalogue.service.js — donc pas d'ID en dur) : publicité = « publicité », « pub »,
+ * Facebook, TikTok, Meta ; confection = « confection ».
  */
+const sansAccent = (t) => String(t || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const EST_PUBLICITE = /publicit|\bpub\b|facebook|tiktok|\bmeta\b/;
+const EST_CONFECTION = /confection/;
+
 async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, periode_fin, devise_affichage }) {
   const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
   const paysListe = await paysCiblesPourAgregation(pays_id);
@@ -483,11 +489,13 @@ async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, per
   const obtenirTaux = creerCacheTaux();
 
   const categories = await CategorieDepense.find().select('nom').lean();
-  const idsPublicite = new Set(categories.filter((c) => /publicit/i.test(c.nom)).map((c) => String(c._id)));
+  const idsParNom = (motif) => new Set(categories.filter((c) => motif.test(sansAccent(c.nom))).map((c) => String(c._id)));
+  const idsPublicite = idsParNom(EST_PUBLICITE);
+  const idsConfection = idsParNom(EST_CONFECTION);
 
   const points = new Map();
   function accumuler(cle, champ, montant) {
-    const entree = points.get(cle) || { ca: toDecimal(0), publicite: toDecimal(0), depenses: toDecimal(0) };
+    const entree = points.get(cle) || { ca: toDecimal(0), publicite: toDecimal(0), confection: toDecimal(0) };
     entree[champ] = entree[champ].plus(montant);
     points.set(cle, entree);
   }
@@ -517,8 +525,8 @@ async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, per
         montant = montant.times(taux);
       }
       const cle = formaterDatePeriode(d.date, parMois);
-      accumuler(cle, 'depenses', montant);
       if (idsPublicite.has(String(d.categorie_id))) accumuler(cle, 'publicite', montant);
+      else if (idsConfection.has(String(d.categorie_id))) accumuler(cle, 'confection', montant);
     }
   }
 
@@ -528,7 +536,7 @@ async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, per
       periode: periode2,
       ca: Number(v.ca.toFixed(2)),
       publicite: Number(v.publicite.toFixed(2)),
-      depenses: Number(v.depenses.toFixed(2)),
+      confection: Number(v.confection.toFixed(2)),
     }));
 
   return { granularite: parMois ? 'mois' : 'jour', devise: deviseCible ? deviseCible.code : null, points: resultats };
