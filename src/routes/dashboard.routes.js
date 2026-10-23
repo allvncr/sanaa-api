@@ -37,6 +37,7 @@ router.get(
   scopePays('pays_id'),
   ctrl.analyseCaPubDepenses
 );
+router.get('/rentabilite-pub', requirePermission('dashboard:voir_pays'), scopePays('pays_id'), ctrl.rentabilitePub);
 router.get(
   '/repartition-depenses',
   requirePermission('dashboard:voir_pays'),

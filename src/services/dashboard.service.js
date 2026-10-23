@@ -542,6 +542,67 @@ async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, per
   return { granularite: parMois ? 'mois' : 'jour', devise: deviseCible ? deviseCible.code : null, points: resultats };
 }
 
+/**
+ * Rentabilité de la publicité (retour du 23/10/2026) : sur la période et la
+ * période précédente équivalente, la dépense publicitaire totale, le coût de
+ * pub par commande et le « retour sur pub » (CA généré pour 1 unité de pub).
+ * Même définition du CA et de la « publicité » que le suivi CA / Pub /
+ * Confection. Montants dans la devise du pays, ou dans devise_affichage en
+ * mode « tous les pays » (conversion au taux de chaque jour).
+ */
+async function rentabilitePub({ pays_id, periode, date, periode_debut, periode_fin, devise_affichage }) {
+  const { debut, fin, precedent } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
+  const paysListe = await paysCiblesPourAgregation(pays_id);
+  const deviseCible = pays_id ? null : await resoudreDeviseCible(devise_affichage);
+  const obtenirTaux = creerCacheTaux();
+
+  const categories = await CategorieDepense.find().select('nom').lean();
+  const idsPublicite = new Set(categories.filter((c) => EST_PUBLICITE.test(sansAccent(c.nom))).map((c) => String(c._id)));
+
+  async function totaux(du, au) {
+    let ca = toDecimal(0);
+    let publicite = toDecimal(0);
+    let commandesNb = 0;
+    for (const pays of paysListe) {
+      const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+      const [commandes, depenses] = await Promise.all([
+        Commande.find({ pays_id: pays._id, createdAt: { $gte: du, $lte: au }, statut_commande: { $in: statutsInclus } })
+          .select('total reduction createdAt').lean(),
+        Depense.find({ pays_id: pays._id, date: { $gte: du, $lte: au } }).select('montant categorie_id date').lean(),
+      ]);
+      const convertir = async (montant, dateRef) => {
+        if (!deviseCible) return montant;
+        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, dateRef);
+        return taux === null ? null : montant.times(taux);
+      };
+      for (const c of commandes) {
+        const m = await convertir(toDecimal(c.total).minus(toDecimal(c.reduction || 0)), c.createdAt);
+        if (m === null) continue;
+        ca = ca.plus(m);
+        commandesNb += 1;
+      }
+      for (const d of depenses) {
+        if (!idsPublicite.has(String(d.categorie_id))) continue;
+        const m = await convertir(toDecimal(d.montant), d.date);
+        if (m !== null) publicite = publicite.plus(m);
+      }
+    }
+    return {
+      publicite: Number(publicite.toFixed(2)),
+      ca: Number(ca.toFixed(2)),
+      nombre_commandes: commandesNb,
+      cout_par_commande: commandesNb > 0 && publicite.gt(0) ? Number(publicite.div(commandesNb).toFixed(2)) : null,
+      retour_sur_pub: publicite.gt(0) ? Number(ca.div(publicite).toFixed(2)) : null,
+    };
+  }
+
+  return {
+    devise: deviseCible ? deviseCible.code : null,
+    ...(await totaux(debut, fin)),
+    comparaison: precedent ? await totaux(precedent.debut, precedent.fin) : null,
+  };
+}
+
 module.exports = {
   kpis,
   comparaisonPays,
@@ -551,5 +612,6 @@ module.exports = {
   repartitionCanal,
   nouveauxClients,
   analyseCaPubDepenses,
+  rentabilitePub,
   repartitionDepenses,
 };
