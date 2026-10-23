@@ -18,6 +18,11 @@ const ArticleStockSchema = new Schema(
     couleur: { type: String, trim: true },
     // En dessous (ou égal) : « stock bas ». 0 = pas d'alerte avant la rupture.
     seuil_alerte: { type: Number, min: 0, default: 0 },
+    // Prix de vente dans la devise du pays. Chaque article a un produit « miroir »
+    // du catalogue (produit_id / variante_id) pour pouvoir être commandé.
+    prix_vente: { type: Schema.Types.Decimal128, required: true },
+    produit_id: { type: Schema.Types.ObjectId, ref: 'Produit', index: true },
+    variante_id: { type: Schema.Types.ObjectId },
     notes: { type: String, trim: true },
     actif: { type: Boolean, default: true },
     cree_par: { type: Schema.Types.ObjectId, ref: 'Utilisateur' },

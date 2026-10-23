@@ -16,10 +16,20 @@ const MouvementArticleSchema = new Schema(
       // creation = stock de départ d'un nouveau produit ; entree = achat /
       // réapprovisionnement ; sortie = vente ; retour = bijou revenu (non livré,
       // refusé…) ; ajustement = écart constaté à l'inventaire.
-      enum: ['creation', 'entree', 'sortie', 'retour', 'ajustement'],
+      enum: ['creation', 'entree', 'sortie', 'retour', 'ajustement', 'reservation'],
       required: true,
     },
     quantite: { type: Number, required: true },
+    // reservation = bijou mis de côté par une commande (automatique) : baisse le
+    // disponible sans changer le stock physique, libéré à l'échec / l'annulation.
+    // Achat (creation / entree) : coût d'une pièce et frais de transport du lot,
+    // à l'origine du coût de revient ; les dépenses créées en conséquence sont liées.
+    cout_unitaire: { type: Schema.Types.Decimal128 },
+    frais_transport: { type: Schema.Types.Decimal128 },
+    depense_ids: { type: [{ type: Schema.Types.ObjectId, ref: 'Depense' }], default: [] },
+    // Mouvement généré par une commande (réservation, sortie à la livraison…) : non annulable à la main.
+    reference_commande_id: { type: Schema.Types.ObjectId, ref: 'Commande', index: true },
+    auto: { type: Boolean, default: false },
     // Note libre : n° de commande Shopify, fournisseur, motif du retour…
     commentaire: { type: String, trim: true },
     date: { type: Date, required: true, default: Date.now, index: true },

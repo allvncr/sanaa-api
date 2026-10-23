@@ -11,6 +11,7 @@ const JournalActivite = require('../models/JournalActivite');
 const { construireEvenement, construireEvenementClient } = require('../utils/commandeHistorique');
 const clientService = require('./client.service');
 const { normaliserTelephone } = require('../utils/telephone');
+const stockCommande = require('./stockCommande.service');
 
 function mouvementsReservation(commande, utilisateurId) {
   return commande.lignes.map((ligne) => ({
@@ -116,6 +117,15 @@ async function creer(data, req) {
     lignes.push(await construireLigne(ligneInput, data.pays_id));
   }
 
+  // Bijoux « en stock » : disponibilité vérifiée ; la commande arrive déjà
+  // fabriquée et reçue en pays (prête pour la livraison du jour).
+  const analyse = await stockCommande.analyserLignes(lignes);
+  if (analyse.stock) await stockCommande.verifierDisponibilite(lignes, analyse.articles);
+  const maintenant = new Date();
+  const statutsStock = analyse.stock
+    ? { statut_fabrication: 'Terminee', date_fabrication_terminee: maintenant, statut_livraison: 'Recue_en_pays', date_recue_en_pays: maintenant }
+    : {};
+
   const total = sum(lignes.map((l) => l.sous_total));
   const reduction = toDecimal(data.reduction || 0);
   const numero = await genererNumero(data.pays_id);
@@ -152,6 +162,7 @@ async function creer(data, req) {
           // sinon les valeurs par défaut du schéma (Confirmee/A_produire/A_expedier)
           // s'appliquent — cas normal de la saisie rapide.
           ...(data.statut_commande ? { statut_commande: data.statut_commande } : {}),
+          ...statutsStock,
         },
       ],
       { session }
@@ -161,6 +172,7 @@ async function creer(data, req) {
     if (commande.statut_commande === 'Confirmee') {
       await StockMouvement.create(mouvementsReservation(commande, req.user.id), { session, ordered: true });
     }
+    if (analyse.stock) await stockCommande.synchroniser(commande, { session });
 
     return avecResteAPayer(commande);
   });
@@ -415,6 +427,8 @@ async function modifier(id, data, req) {
     commande.lignes = await reconstruireLignes(data.lignes, commande);
     commande.total = toDecimal128(sum(commande.lignes.map((l) => l.sous_total)));
     lignesModifiees = true;
+    const analyseModif = await stockCommande.analyserLignes(commande.lignes);
+    if (analyseModif.stock) await stockCommande.verifierDisponibilite(commande.lignes, analyseModif.articles, commande._id);
   }
 
   if (data.reduction !== undefined) {
@@ -460,6 +474,7 @@ async function modifier(id, data, req) {
       if (mouvements.length) await StockMouvement.create(mouvements, { session, ordered: true });
     }
     await commande.save({ session });
+    await stockCommande.synchroniser(commande, { session });
   });
 
   return obtenir(id);
@@ -526,6 +541,7 @@ async function supprimer(id, { confirmerPaiements = false } = {}, req) {
       ],
       { session }
     );
+    await stockCommande.synchroniser(commande, { supprimee: true, session });
     await commande.deleteOne({ session });
   });
 
@@ -648,6 +664,7 @@ async function changerStatutCommande(id, nouveauStatut, req) {
 
     commande.statut_commande = nouveauStatut;
     await commande.save({ session });
+    await stockCommande.synchroniser(commande, { session });
     return avecResteAPayer(commande);
   });
 }
@@ -718,6 +735,8 @@ async function changerStatutLivraison(id, nouveauStatut) {
   else if (nouveauStatut === 'Retour_echec') commande.date_retour_echec = new Date();
 
   await commande.save();
+  // Bijoux en stock : la livraison fait sortir les pièces, un échec les libère.
+  await stockCommande.synchroniser(commande);
   return commande;
 }
 

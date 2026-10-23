@@ -33,8 +33,10 @@ async function supprimerCategorie(id) {
   return { supprime: true };
 }
 
-async function listerProduits({ statut, categorie_id, q } = {}) {
-  const filtre = {};
+async function listerProduits({ statut, categorie_id, q, en_stock } = {}) {
+  // Les bijoux « en stock » (produits miroirs, voir ArticleStock) n'apparaissent
+  // pas dans le catalogue ni dans les commandes personnalisées.
+  const filtre = en_stock === 'true' || en_stock === true ? { en_stock: true } : { en_stock: { $ne: true } };
   if (statut) filtre.statut = statut;
   if (categorie_id) filtre.categorie_id = categorie_id;
   if (q) filtre.$text = { $search: q };

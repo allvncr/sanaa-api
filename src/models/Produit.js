@@ -44,6 +44,10 @@ const ProduitSchema = new Schema(
     // autant être signalés comme une traduction manquante (voir
     // export.service.js : specificationLigne / genererExportUsine).
     fabrication_locale: { type: Boolean, default: false },
+    // Miroir d'un bijou « en stock » (voir ArticleStock) : permet de le commander
+    // comme n'importe quel produit (prix, CA, livraison) mais il est masqué du
+    // catalogue et du formulaire des commandes personnalisées.
+    en_stock: { type: Boolean, default: false, index: true },
     reference_sku: { type: String, unique: true, sparse: true, trim: true },
     nb_prenoms_max: { type: Number, min: 0, default: 1 },
     options_personnalisation: { type: Schema.Types.Mixed, default: {} },
