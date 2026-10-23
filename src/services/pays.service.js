@@ -40,13 +40,14 @@ async function supprimer(id) {
   const pays = await Pays.findById(id);
   if (!pays) throw ApiError.notFound('Pays introuvable');
 
-  const [Commande, Client, Depense, StockMouvement, CommandeFournisseur, CampagneMarketing] = [
+  const [Commande, Client, Depense, StockMouvement, CommandeFournisseur, CampagneMarketing, ArticleStock] = [
     require('../models/Commande'),
     require('../models/Client'),
     require('../models/Depense'),
     require('../models/StockMouvement'),
     require('../models/CommandeFournisseur'),
     require('../models/CampagneMarketing'),
+    require('../models/ArticleStock'),
   ];
 
   const verifications = [
@@ -54,6 +55,7 @@ async function supprimer(id) {
     { modele: Client, champ: 'pays_id', libelle: 'des clients' },
     { modele: Depense, champ: 'pays_id', libelle: 'des dépenses' },
     { modele: StockMouvement, champ: 'pays_id', libelle: 'des mouvements de stock' },
+    { modele: ArticleStock, champ: 'pays_id', libelle: 'des produits en stock' },
     { modele: CommandeFournisseur, champ: 'pays_destination_id', libelle: "des commandes fournisseur" },
     { modele: CampagneMarketing, champ: 'pays_id', libelle: 'des campagnes marketing' },
   ];

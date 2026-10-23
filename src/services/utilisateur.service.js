@@ -102,11 +102,12 @@ async function supprimer(id, req) {
     throw ApiError.forbidden('Vous ne pouvez pas supprimer un compte à portée globale');
   }
 
-  const [Commande, Livraison, Depense, StockMouvement, JournalActivite] = [
+  const [Commande, Livraison, Depense, StockMouvement, MouvementArticle, JournalActivite] = [
     require('../models/Commande'),
     require('../models/Livraison'),
     require('../models/Depense'),
     require('../models/StockMouvement'),
+    require('../models/MouvementArticle'),
     require('../models/JournalActivite'),
   ];
 
@@ -116,6 +117,7 @@ async function supprimer(id, req) {
     { modele: Livraison, champ: 'livree_par', libelle: 'des livraisons confirmées' },
     { modele: Depense, champ: 'valide_par', libelle: 'des dépenses validées' },
     { modele: StockMouvement, champ: 'saisi_par', libelle: 'des mouvements de stock' },
+    { modele: MouvementArticle, champ: 'saisi_par', libelle: 'des mouvements de stock (bijoux en stock)' },
     { modele: JournalActivite, champ: 'utilisateur_id', libelle: "des actions dans le journal d'activité" },
   ];
 

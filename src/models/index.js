@@ -10,6 +10,8 @@ module.exports = {
   Commande: require('./Commande'),
   Livraison: require('./Livraison'),
   StockMouvement: require('./StockMouvement'),
+  ArticleStock: require('./ArticleStock'),
+  MouvementArticle: require('./MouvementArticle'),
   Fournisseur: require('./Fournisseur'),
   CommandeFournisseur: require('./CommandeFournisseur'),
   CategorieDepense: require('./CategorieDepense'),
