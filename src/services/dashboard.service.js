@@ -303,42 +303,86 @@ async function performanceProduits({ pays_id, periode, date, periode_debut, peri
  * au taux en vigueur à sa propre date avant d'être cumulée dans le bucket.
  */
 async function evolutionCA({ pays_id, periode, date, periode_debut, periode_fin, devise_affichage }) {
-  const { debut, fin } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
+  const { debut, fin, precedent } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
   const paysListe = await paysCiblesPourAgregation(pays_id);
   const nombreJours = (fin.getTime() - debut.getTime()) / (24 * 60 * 60 * 1000);
   const parMois = nombreJours > 62;
   const deviseCible = pays_id ? null : await resoudreDeviseCible(devise_affichage);
   const obtenirTaux = creerCacheTaux();
 
-  const points = new Map();
-  for (const pays of paysListe) {
-    const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
-    const commandes = await Commande.find({
-      pays_id: pays._id,
-      createdAt: { $gte: debut, $lte: fin },
-      statut_commande: { $in: statutsInclus },
-    }).select('total reduction createdAt').lean();
+  // CA et nombre de commandes par jour (ou par mois) sur une période donnée.
+  async function cumuler(du, au) {
+    const points = new Map();
+    for (const pays of paysListe) {
+      const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+      const commandes = await Commande.find({
+        pays_id: pays._id,
+        createdAt: { $gte: du, $lte: au },
+        statut_commande: { $in: statutsInclus },
+      }).select('total reduction createdAt').lean();
 
-    for (const c of commandes) {
-      let montant = toDecimal(c.total).minus(toDecimal(c.reduction || 0));
-      if (deviseCible) {
-        const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
-        if (taux === null) continue;
-        montant = montant.times(taux);
+      for (const c of commandes) {
+        let montant = toDecimal(c.total).minus(toDecimal(c.reduction || 0));
+        if (deviseCible) {
+          const taux = await obtenirTaux(pays.devise_locale_id, deviseCible._id, c.createdAt);
+          if (taux === null) continue;
+          montant = montant.times(taux);
+        }
+        const cle = formaterDatePeriode(c.createdAt, parMois);
+        const entree = points.get(cle) || { ca: toDecimal(0), nombre_commandes: 0 };
+        entree.ca = entree.ca.plus(montant);
+        entree.nombre_commandes += 1;
+        points.set(cle, entree);
       }
-      const cle = formaterDatePeriode(c.createdAt, parMois);
-      const entree = points.get(cle) || { ca: toDecimal(0), nombre_commandes: 0 };
-      entree.ca = entree.ca.plus(montant);
-      entree.nombre_commandes += 1;
-      points.set(cle, entree);
     }
+    return points;
   }
 
-  const resultats = [...points.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([periode2, v]) => ({ periode: periode2, ca: Number(v.ca.toFixed(2)), nombre_commandes: v.nombre_commandes }));
+  // Tous les jours (ou mois) de la période, y compris sans commande : un jour
+  // à zéro doit apparaître comme tel et permet d'aligner la période précédente.
+  // On s'arrête à aujourd'hui pour ne pas afficher de futur à zéro.
+  function cles(du, au, jusquAMaintenant) {
+    const limite = jusquAMaintenant ? Math.min(au.getTime(), Date.now()) : au.getTime();
+    const liste = [];
+    const d = new Date(Date.UTC(du.getUTCFullYear(), du.getUTCMonth(), parMois ? 1 : du.getUTCDate()));
+    while (d.getTime() <= limite) {
+      liste.push(formaterDatePeriode(d, parMois));
+      if (parMois) d.setUTCMonth(d.getUTCMonth() + 1);
+      else d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return liste;
+  }
 
-  return { granularite: parMois ? 'mois' : 'jour', devise: deviseCible ? deviseCible.code : null, points: resultats };
+  const cumulActuel = await cumuler(debut, fin);
+  const clesActuelles = cles(debut, fin, true);
+  const points = clesActuelles.map((cle) => {
+    const v = cumulActuel.get(cle);
+    return { periode: cle, ca: v ? Number(v.ca.toFixed(2)) : 0, nombre_commandes: v ? v.nombre_commandes : 0 };
+  });
+
+  // Période précédente équivalente, alignée jour par jour (1er jour contre 1er
+  // jour…) et limitée à la longueur déjà écoulée de la période en cours.
+  let comparaison = null;
+  if (precedent) {
+    const cumulPrecedent = await cumuler(precedent.debut, precedent.fin);
+    const clesPrecedentes = cles(precedent.debut, precedent.fin, false);
+    comparaison = clesActuelles.map((_, k) => {
+      const cle = clesPrecedentes[k];
+      const v = cle ? cumulPrecedent.get(cle) : null;
+      return {
+        periode: cle || null,
+        ca: v ? Number(v.ca.toFixed(2)) : 0,
+        nombre_commandes: v ? v.nombre_commandes : 0,
+      };
+    });
+  }
+
+  return {
+    granularite: parMois ? 'mois' : 'jour',
+    devise: deviseCible ? deviseCible.code : null,
+    points,
+    comparaison,
+  };
 }
 
 /**
