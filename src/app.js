@@ -11,6 +11,11 @@ const logger = require('./utils/logger');
 
 const app = express();
 
+// Derrière Nginx (1 saut) : sans ça, tous les visiteurs apparaissent en
+// 127.0.0.1 et les limiteurs de débit (connexion, suivi client, exports) sont
+// partagés entre tous les utilisateurs. Valeur réglable via TRUST_PROXY.
+app.set('trust proxy', env.trustProxy);
+
 app.use(helmet());
 // app.use(
 //   cors({

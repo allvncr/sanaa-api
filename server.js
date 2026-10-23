@@ -5,8 +5,8 @@ const logger = require('./src/utils/logger');
 
 async function start() {
   await connectDB();
-  app.listen(env.port, () => {
-    logger.info(`SANAA API démarrée sur http://localhost:${env.port} (${env.nodeEnv})`);
+  app.listen(env.port, env.host, () => {
+    logger.info(`SANAA API démarrée sur http://${env.host}:${env.port} (${env.nodeEnv})`);
   });
 }
 

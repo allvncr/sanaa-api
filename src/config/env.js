@@ -3,6 +3,11 @@ require('dotenv').config();
 module.exports = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 4000,
+  // Écoute locale uniquement par défaut : en production l'API n'est joignable
+  // que via Nginx (127.0.0.1:4000). Un hébergeur sans reverse proxy local
+  // (Render) définit HOST=0.0.0.0.
+  host: process.env.HOST || '127.0.0.1',
+  trustProxy: process.env.TRUST_PROXY !== undefined ? Number(process.env.TRUST_PROXY) : 1,
   mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sanaa',
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'dev_access_secret',
