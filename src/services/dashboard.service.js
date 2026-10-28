@@ -136,7 +136,10 @@ async function kpisBrutsPays(paysId, debut, fin) {
     depenses: totalDepenses,
     benefice: { montant: benefice, devise_id: pays.devise_locale_id },
     marge_pct: marge.toFixed(2),
-    nombre_commandes: commandes.length,
+    // Mêmes commandes que le CA (annulées exclues) : le panier moyen = CA / commandes
+    // reste cohérent. Articles = total des pièces (une commande peut en contenir plusieurs).
+    nombre_commandes: commandesCA.length,
+    nombre_articles: commandesCA.reduce((somme, c) => somme + (c.lignes || []).reduce((n, l) => n + Number(l.quantite || 0), 0), 0),
     taux_livraison_pct: ((livrees / totalCommandes) * 100).toFixed(2),
     taux_annulation_pct: ((annulees / totalCommandes) * 100).toFixed(2),
     taux_retour_pct: ((retours / totalCommandes) * 100).toFixed(2),
@@ -213,6 +216,7 @@ async function comparaisonPays({ periode, date, periode_debut, periode_fin, devi
       depenses_converties: depensesConverties.toFixed(2),
       benefice_converti: beneficeConverti.toFixed(2),
       nombre_commandes: brut.nombre_commandes,
+      nombre_articles: brut.nombre_articles,
       taux_livraison_pct: brut.taux_livraison_pct,
       taux_annulation_pct: brut.taux_annulation_pct,
       taux_retour_pct: brut.taux_retour_pct,
@@ -431,32 +435,61 @@ async function repartitionCanal({ pays_id, periode, date, periode_debut, periode
 }
 
 /**
- * Nouveaux clients sur la période, avec comparaison à la période précédente
- * (retour V0.1) et une courbe d'évolution (même granularité que le CA) — pour
- * suivre l'acquisition, pas seulement les ventes.
+ * Clients de la période, définis à partir des COMMANDES (retour du 28/10/2026) :
+ * - nouveaux = clients dont la toute première commande tombe dans la période ;
+ * - récurrents = clients qui commandent dans la période alors qu'ils avaient déjà
+ *   commandé avant ;
+ * - taux de repeat = récurrents / clients ayant commandé dans la période.
+ * La date de création de la fiche client ne sert plus : elle comptait des clients
+ * sans commande (fiches créées à la main, import…) et pouvait dépasser le nombre
+ * de commandes. Mêmes commandes que le CA (annulées exclues).
  */
 async function nouveauxClients({ pays_id, periode, date, periode_debut, periode_fin }) {
   const { debut, fin, precedent } = resoudrePeriode(periode, { date, periode_debut, periode_fin });
   const paysListe = await paysCiblesPourAgregation(pays_id);
-  const paysIds = paysListe.map((p) => p._id);
   const nombreJours = (fin.getTime() - debut.getTime()) / (24 * 60 * 60 * 1000);
   const parMois = nombreJours > 62;
   const format = parMois ? '%Y-%m' : '%Y-%m-%d';
+  const statutsParPays = paysListe.map((p) => ({ pays_id: p._id, statut_commande: { $in: p.ca_statuts_inclus || ['Confirmee'] } }));
+  if (statutsParPays.length === 0) return { total: 0, comparaison: null, actifs: 0, recurrents: 0, taux_repeat: 0, taux_repeat_precedent: null, granularite: parMois ? 'mois' : 'jour', points: [] };
 
-  const [total, totalPrecedent, points] = await Promise.all([
-    Client.countDocuments({ pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } }),
-    precedent
-      ? Client.countDocuments({ pays_id: { $in: paysIds }, createdAt: { $gte: precedent.debut, $lte: precedent.fin } })
-      : Promise.resolve(null),
-    Client.aggregate([
-      { $match: { pays_id: { $in: paysIds }, createdAt: { $gte: debut, $lte: fin } } },
-      { $group: { _id: { $dateToString: { format, date: '$createdAt' } }, nombre: { $sum: 1 } } },
+  async function compter(du, au) {
+    const [r] = await Commande.aggregate([
+      { $match: { $or: statutsParPays, createdAt: { $lte: au } } },
+      { $group: { _id: '$client_id', premiere: { $min: '$createdAt' }, active: { $max: { $cond: [{ $gte: ['$createdAt', du] }, 1, 0] } } } },
+      { $match: { active: 1 } },
+      { $group: { _id: null, actifs: { $sum: 1 }, nouveaux: { $sum: { $cond: [{ $gte: ['$premiere', du] }, 1, 0] } } } },
+    ]);
+    const actifs = r ? r.actifs : 0;
+    const nouveaux = r ? r.nouveaux : 0;
+    const recurrents = actifs - nouveaux;
+    return { actifs, nouveaux, recurrents, taux: actifs > 0 ? Number(((recurrents / actifs) * 100).toFixed(1)) : 0 };
+  }
+
+  const [actuel, avant, points] = await Promise.all([
+    compter(debut, fin),
+    precedent ? compter(precedent.debut, precedent.fin) : Promise.resolve(null),
+    // Courbe : nouveaux clients par jour (ou par mois) = clients groupés par jour de leur première commande.
+    Commande.aggregate([
+      { $match: { $or: statutsParPays, createdAt: { $lte: fin } } },
+      { $group: { _id: '$client_id', premiere: { $min: '$createdAt' } } },
+      { $match: { premiere: { $gte: debut } } },
+      { $group: { _id: { $dateToString: { format, date: '$premiere' } }, nombre: { $sum: 1 } } },
       { $sort: { _id: 1 } },
       { $project: { _id: 0, periode: '$_id', nombre: 1 } },
     ]),
   ]);
 
-  return { total, comparaison: totalPrecedent, granularite: parMois ? 'mois' : 'jour', points };
+  return {
+    total: actuel.nouveaux,
+    comparaison: avant ? avant.nouveaux : null,
+    actifs: actuel.actifs,
+    recurrents: actuel.recurrents,
+    taux_repeat: actuel.taux,
+    taux_repeat_precedent: avant ? avant.taux : null,
+    granularite: parMois ? 'mois' : 'jour',
+    points,
+  };
 }
 
 /**
