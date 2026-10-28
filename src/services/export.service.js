@@ -85,6 +85,11 @@ async function specificationLigne(ligne) {
   };
 }
 
+// Une ligne de commande de quantité N donne N lignes dans les exports : l'usine
+// fabrique une pièce par ligne (retour du 28/10/2026 : 3 bracelets identiques
+// n'apparaissaient qu'une fois).
+const quantiteLigne = (ligne) => Math.max(1, Math.floor(Number(ligne.quantite) || 1));
+
 function appliquerPolicesCellules(feuille) {
   feuille.eachRow((row) => {
     row.eachCell({ includeEmpty: true }, (cell) => {
@@ -137,29 +142,35 @@ async function genererExportInterne(paysId, date, utilisateurId) {
   for (const commande of commandes) {
     const totalPaye = sum(commande.paiements.filter((p) => !p.annule).map((p) => p.montant));
     for (const ligne of commande.lignes) {
-      numeroLigne += 1;
       const spec = await specificationLigne(ligne);
-      const numeroExcel = numeroLigne + 1; // +1 : la ligne 1 est l'en-tête
-      const ligneExcel = feuille.addRow({
-        numero_ligne: numeroLigne,
-        personnalisation: spec.personnalisation,
-        couleur: spec.couleur,
-        police: spec.police,
-        modele: spec.modele,
-        ncommande: commande.numero,
-        avance: toDecimal(totalPaye).toNumber(),
-        prix: toDecimal(ligne.sous_total).toNumber(),
-        // reste = Prix - Avance, formule live (colonnes H et G de cette même
-        // ligne) plutôt qu'une valeur figée, comme dans le classeur SANAA actuel.
-        reste: { formula: `H${numeroExcel}-G${numeroExcel}` },
-        client_nom: commande.client_id ? commande.client_id.nom : '',
-        numero_tel: commande.client_id ? commande.client_id.telephone_whatsapp : '',
-        adresse: commande.client_id ? commande.client_id.adresse : '',
-      });
-      ligneExcel.getCell('numero_ligne').font = { ...POLICE_CLASSEUR, bold: true };
-      ligneExcel.getCell('ncommande').font = { ...POLICE_CLASSEUR, bold: true };
-      if (spec.modeleManquant) signalerTraductionManquante(ligneExcel.getCell('modele'));
-      if (spec.couleurManquante) signalerTraductionManquante(ligneExcel.getCell('couleur'));
+      const quantite = quantiteLigne(ligne);
+      // Prix d'une pièce ; l'avance (payée pour toute la commande) n'est écrite
+      // que sur la première pièce de la ligne, pas répétée sur chaque exemplaire.
+      const prixPiece = toDecimal(ligne.sous_total).div(quantite).toNumber();
+      for (let piece = 1; piece <= quantite; piece += 1) {
+        numeroLigne += 1;
+        const numeroExcel = numeroLigne + 1; // +1 : la ligne 1 est l'en-tête
+        const ligneExcel = feuille.addRow({
+          numero_ligne: numeroLigne,
+          personnalisation: spec.personnalisation,
+          couleur: spec.couleur,
+          police: spec.police,
+          modele: spec.modele,
+          ncommande: commande.numero,
+          avance: piece === 1 ? toDecimal(totalPaye).toNumber() : 0,
+          prix: prixPiece,
+          // reste = Prix - Avance, formule live (colonnes H et G de cette même
+          // ligne) plutôt qu'une valeur figée, comme dans le classeur SANAA actuel.
+          reste: { formula: `H${numeroExcel}-G${numeroExcel}` },
+          client_nom: commande.client_id ? commande.client_id.nom : '',
+          numero_tel: commande.client_id ? commande.client_id.telephone_whatsapp : '',
+          adresse: commande.client_id ? commande.client_id.adresse : '',
+        });
+        ligneExcel.getCell('numero_ligne').font = { ...POLICE_CLASSEUR, bold: true };
+        ligneExcel.getCell('ncommande').font = { ...POLICE_CLASSEUR, bold: true };
+        if (spec.modeleManquant) signalerTraductionManquante(ligneExcel.getCell('modele'));
+        if (spec.couleurManquante) signalerTraductionManquante(ligneExcel.getCell('couleur'));
+      }
     }
   }
 
@@ -208,17 +219,19 @@ async function genererExportUsine(paysId, date, utilisateurId) {
       // Un article de fabrication locale (déjà en stock, gravé sur place)
       // n'est jamais fabriqué par l'usine : elle n'a pas à en entendre parler.
       if (spec.fabricationLocale) continue;
-      numeroLigne += 1;
-      const ligneExcel = feuille.addRow({
-        numero_ligne: numeroLigne,
-        personnalisation: spec.personnalisation,
-        couleur: spec.couleur,
-        police: spec.police,
-        modele: spec.modele,
-      });
-      ligneExcel.getCell('numero_ligne').font = { ...POLICE_CLASSEUR, bold: true };
-      if (spec.modeleManquant) signalerTraductionManquante(ligneExcel.getCell('modele'));
-      if (spec.couleurManquante) signalerTraductionManquante(ligneExcel.getCell('couleur'));
+      for (let piece = 1; piece <= quantiteLigne(ligne); piece += 1) {
+        numeroLigne += 1;
+        const ligneExcel = feuille.addRow({
+          numero_ligne: numeroLigne,
+          personnalisation: spec.personnalisation,
+          couleur: spec.couleur,
+          police: spec.police,
+          modele: spec.modele,
+        });
+        ligneExcel.getCell('numero_ligne').font = { ...POLICE_CLASSEUR, bold: true };
+        if (spec.modeleManquant) signalerTraductionManquante(ligneExcel.getCell('modele'));
+        if (spec.couleurManquante) signalerTraductionManquante(ligneExcel.getCell('couleur'));
+      }
     }
   }
 
