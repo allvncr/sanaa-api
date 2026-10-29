@@ -897,7 +897,7 @@ async function encaissementsJour(paysId, date, periode) {
   const commandes = await Commande.find({
     pays_id: paysId,
     'paiements.date_paiement': { $gte: debut, $lt: fin },
-  });
+  }).populate('client_id', 'nom');
 
   const parMoyen = {};
   let total = toDecimal(0);
@@ -913,6 +913,7 @@ async function encaissementsJour(paysId, date, periode) {
       lignes.push({
         commande_numero: commande.numero,
         commande_id: commande._id,
+        client_nom: commande.client_id && commande.client_id.nom ? commande.client_id.nom : '',
         moyen_paiement: paiement.moyen_paiement,
         type: paiement.type,
         montant: montant.toFixed(2),
