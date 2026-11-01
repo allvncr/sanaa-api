@@ -49,7 +49,13 @@ function bornesJour(date) {
 
 async function commandesDuJour(filtre, date) {
   const { debut, fin } = bornesJour(date);
-  return Commande.find({ ...filtre, createdAt: { $gte: debut, $lt: fin } }).populate('client_id');
+  // Une commande annulée ou refusée ne doit jamais partir en fabrication : elle
+  // n'apparaît dans aucun export (retour du 01/11/2026).
+  return Commande.find({
+    ...filtre,
+    createdAt: { $gte: debut, $lt: fin },
+    statut_commande: { $nin: ['Annulee', 'Refusee'] },
+  }).populate('client_id');
 }
 
 /**
