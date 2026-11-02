@@ -76,6 +76,21 @@ const ROLES_PAR_DEFAUT = [
     portee: 'pays',
     permissions: ['livraisons:voir', 'livraisons:livrer'],
   },
+  {
+    // Rôle destiné à une entreprise d'audit externe (retour du 02/11/2026) :
+    // consultation de TOUTES les données de tous les pays, aucune écriture.
+    // Liste explicite (et non dérivée des « voir ») pour qu'une future permission
+    // d'écriture ne s'y glisse jamais par accident. `exports:telecharger` permet
+    // de récupérer les fichiers déjà générés, sans en produire de nouveaux.
+    nom: 'Auditeur',
+    portee: 'global',
+    permissions: [
+      'pays:voir', 'utilisateurs:voir', 'catalogue:voir', 'clients:voir', 'commandes:voir',
+      'livraisons:voir', 'paiements:voir', 'stock:voir', 'fournisseurs:voir', 'depenses:voir',
+      'marketing:voir', 'journal_activite:voir', 'a_traiter:voir', 'exports:telecharger',
+      'dashboard:voir_pays', 'dashboard:voir_global', 'dashboard:comparer_pays',
+    ],
+  },
 ];
 
 module.exports = { PERMISSIONS, ALL_PERMISSIONS, ROLES_PAR_DEFAUT };
