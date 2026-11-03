@@ -121,6 +121,10 @@ async function kpisBrutsPays(paysId, debut, fin) {
 
   const benefice = ca.montant.minus(totalDepenses.montant);
   const marge = ca.montant.gt(0) ? benefice.div(ca.montant).times(100) : toDecimal(0);
+  // Bénéfice réel (retour du 03/11/2026) : mêmes dépenses, mais sur l'argent
+  // réellement encaissé plutôt que sur le CA — le CA compte des commandes dont
+  // une partie n'est pas encore payée.
+  const beneficeReel = encaissements.montant.minus(totalDepenses.montant);
 
   const totalCommandes = commandes.length || 1;
   const livrees = commandes.filter((c) => c.statut_livraison === 'Livree').length;
@@ -135,6 +139,7 @@ async function kpisBrutsPays(paysId, debut, fin) {
     reste_a_recevoir: { montant: resteARecevoir, devise_id: pays.devise_locale_id },
     depenses: totalDepenses,
     benefice: { montant: benefice, devise_id: pays.devise_locale_id },
+    benefice_reel: { montant: beneficeReel, devise_id: pays.devise_locale_id },
     marge_pct: marge.toFixed(2),
     // Mêmes commandes que le CA (annulées exclues) : le panier moyen = CA / commandes
     // reste cohérent. Articles = total des pièces (une commande peut en contenir plusieurs).
@@ -155,7 +160,7 @@ async function kpisBrutsPays(paysId, debut, fin) {
 
 function formaterMontants(brut) {
   const out = { ...brut };
-  for (const cle of ['ca', 'encaissements', 'reste_a_recevoir', 'depenses', 'benefice']) {
+  for (const cle of ['ca', 'encaissements', 'reste_a_recevoir', 'depenses', 'benefice', 'benefice_reel']) {
     out[cle] = { ...out[cle], montant: out[cle].montant.toFixed(2) };
   }
   delete out._paiements;
@@ -215,6 +220,7 @@ async function comparaisonPays({ periode, date, periode_debut, periode_fin, devi
       encaissements_convertis: encaissementsConvertis.toFixed(2),
       depenses_converties: depensesConverties.toFixed(2),
       benefice_converti: beneficeConverti.toFixed(2),
+      benefice_reel_converti: encaissementsConvertis.minus(depensesConverties).toFixed(2),
       nombre_commandes: brut.nombre_commandes,
       nombre_articles: brut.nombre_articles,
       taux_livraison_pct: brut.taux_livraison_pct,
@@ -236,6 +242,7 @@ async function comparaisonPays({ periode, date, periode_debut, periode_fin, devi
       encaissements_convertis: globalAccum.encaissements.toFixed(2),
       depenses_converties: globalAccum.depenses.toFixed(2),
       benefice_converti: globalAccum.ca.minus(globalAccum.depenses).toFixed(2),
+      benefice_reel_converti: globalAccum.encaissements.minus(globalAccum.depenses).toFixed(2),
     },
     pays: lignes,
   };
