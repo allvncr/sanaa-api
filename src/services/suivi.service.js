@@ -33,7 +33,9 @@ function telephoneCorrespond(telephoneClient, telephoneSaisi) {
 // atteint, sa date réelle horodatée prend le pas sur l'estimation.
 const UN_JOUR_MS = 24 * 60 * 60 * 1000;
 const JOURS_FABRICATION = 7;
-const JOURS_TRANSIT = 5;
+// Transit porté de 5 à 7 jours (retour du 07/11/2026) : à 5 jours, des clients
+// écrivaient que le délai était dépassé alors que le colis arrivait dans les temps.
+const JOURS_TRANSIT = 7;
 
 function ajouterJours(date, jours) {
   return new Date(date.getTime() + jours * UN_JOUR_MS);
