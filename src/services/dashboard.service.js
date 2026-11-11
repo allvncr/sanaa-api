@@ -48,8 +48,10 @@ function creerCacheTaux() {
   const cache = new Map();
   return async function taux(deviseSourceId, deviseCibleId, date) {
     const cle = `${deviseSourceId}|${deviseCibleId}|${new Date(date).toISOString().slice(0, 10)}`;
+    // On garde la promesse (pas seulement le résultat) : des demandes simultanées
+    // pour le même taux partagent une seule requête à la base.
     if (!cache.has(cle)) {
-      cache.set(cle, await deviseService.tauxApplicable(deviseSourceId, deviseCibleId, date));
+      cache.set(cle, deviseService.tauxApplicable(deviseSourceId, deviseCibleId, date));
     }
     return cache.get(cle);
   };
@@ -324,14 +326,17 @@ async function evolutionCA({ pays_id, periode, date, periode_debut, periode_fin,
   // CA et nombre de commandes par jour (ou par mois) sur une période donnée.
   async function cumuler(du, au) {
     const points = new Map();
-    for (const pays of paysListe) {
+    // Les pays sont interrogés en parallèle (une requête chacun) au lieu de l'un après l'autre.
+    const parPays = await Promise.all(paysListe.map(async (pays) => {
       const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
       const commandes = await Commande.find({
         pays_id: pays._id,
         createdAt: { $gte: du, $lte: au },
         statut_commande: { $in: statutsInclus },
       }).select('total reduction createdAt').lean();
-
+      return { pays, commandes };
+    }));
+    for (const { pays, commandes } of parPays) {
       for (const c of commandes) {
         let montant = toDecimal(c.total).minus(toDecimal(c.reduction || 0));
         if (deviseCible) {

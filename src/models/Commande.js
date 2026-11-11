@@ -114,6 +114,10 @@ const CommandeSchema = new Schema(
 
 CommandeSchema.index({ pays_id: 1, createdAt: -1 });
 CommandeSchema.index({ pays_id: 1, statut_commande: 1 });
+// « À traiter » et filtres de statut de l'écran Commandes.
+CommandeSchema.index({ pays_id: 1, statut_commande: 1, statut_livraison: 1, statut_fabrication: 1 });
+// Encaissements du jour : recherche des paiements par date.
+CommandeSchema.index({ pays_id: 1, 'paiements.date_paiement': 1 });
 
 CommandeSchema.plugin(paysScopePlugin);
 CommandeSchema.plugin(activityLogPlugin, { entite: 'Commande' });

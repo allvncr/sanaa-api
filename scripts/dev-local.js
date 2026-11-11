@@ -9,7 +9,13 @@ require('dotenv').config();
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 async function run() {
-  const mem = await MongoMemoryServer.create({ instance: { port: 27117, dbName: 'sanaa' } });
+  // MongoDB 8.2.6 est déjà en cache sur ce poste (~/.cache/mongodb-binaries) : on le
+  // réutilise au lieu de télécharger la version par défaut du paquet (500 Mo).
+  // MONGOMS_VERSION permet d'en choisir une autre.
+  const mem = await MongoMemoryServer.create({
+    binary: { version: process.env.MONGOMS_VERSION || '8.2.6' },
+    instance: { port: 27117, dbName: 'sanaa' },
+  });
   // mem.getUri() sans argument omet le nom de la base (mongoose se rabat alors
   // sur "test") — on le précise explicitement pour que l'URI reste stable et
   // prévisible d'un redémarrage à l'autre.

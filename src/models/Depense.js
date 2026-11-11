@@ -19,6 +19,9 @@ const DepenseSchema = new Schema(
   { timestamps: true }
 );
 
+// Liste des dépenses et totaux du tableau de bord : filtre par pays et par période.
+DepenseSchema.index({ pays_id: 1, date: -1 });
+
 DepenseSchema.plugin(paysScopePlugin);
 DepenseSchema.plugin(activityLogPlugin, { entite: 'Depense' });
 

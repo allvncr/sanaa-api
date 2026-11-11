@@ -24,6 +24,8 @@ const ClientSchema = new Schema(
 // commandes du même numéro dans le même pays doivent se rattacher au même
 // client plutôt que d'en créer un nouveau à chaque saisie rapide.
 ClientSchema.index({ pays_id: 1, telephone_whatsapp: 1 });
+// Liste des clients : filtre par pays, triée du plus récent au plus ancien.
+ClientSchema.index({ pays_id: 1, createdAt: -1 });
 
 ClientSchema.plugin(paysScopePlugin);
 ClientSchema.plugin(activityLogPlugin, { entite: 'Client' });
