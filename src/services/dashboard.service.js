@@ -44,6 +44,19 @@ async function resoudreDeviseCible(deviseAffichage) {
 // montant doit être converti au taux en vigueur à SA date de transaction
 // (jamais un taux unique global — section 2.5, 10). Mis en cache par paire de
 // devises et par jour pour limiter les allers-retours base de données.
+/**
+ * Statuts de commande comptés dans le CA, les commandes, le perçu et les clients
+ * (retour du 13/11/2026) : toutes les commandes en cours, « Nouvelle » (saisie,
+ * pas encore vérifiée) comme « Confirmée » — la confirmation sert à valider et à
+ * partir en fabrication, pas à déclencher le CA, qui doit être connu dans la
+ * journée. Les annulées et refusées en sont exclues. Le réglage du pays
+ * (ca_statuts_inclus) peut ajouter d'autres statuts, jamais en retirer ceux-ci.
+ */
+const STATUTS_CA_DE_BASE = ['Nouvelle', 'Confirmee'];
+function statutsCA(pays) {
+  return [...new Set([...STATUTS_CA_DE_BASE, ...(pays.ca_statuts_inclus || [])])];
+}
+
 function creerCacheTaux() {
   const cache = new Map();
   return async function taux(deviseSourceId, deviseCibleId, date) {
@@ -90,7 +103,7 @@ async function kpisBrutsPays(paysId, debut, fin) {
   if (!pays) throw new Error('Pays introuvable');
 
   const commandes = await Commande.find({ pays_id: paysId, createdAt: { $gte: debut, $lte: fin } });
-  const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+  const statutsInclus = statutsCA(pays);
 
   // Retour du 09/10/2026 : le CA compte TOUTES les commandes passées sur la
   // période (net de réduction), pas seulement les livrées — il doit rester fixe
@@ -328,7 +341,7 @@ async function evolutionCA({ pays_id, periode, date, periode_debut, periode_fin,
     const points = new Map();
     // Les pays sont interrogés en parallèle (une requête chacun) au lieu de l'un après l'autre.
     const parPays = await Promise.all(paysListe.map(async (pays) => {
-      const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+      const statutsInclus = statutsCA(pays);
       const commandes = await Commande.find({
         pays_id: pays._id,
         createdAt: { $gte: du, $lte: au },
@@ -462,7 +475,7 @@ async function nouveauxClients({ pays_id, periode, date, periode_debut, periode_
   const nombreJours = (fin.getTime() - debut.getTime()) / (24 * 60 * 60 * 1000);
   const parMois = nombreJours > 62;
   const format = parMois ? '%Y-%m' : '%Y-%m-%d';
-  const statutsParPays = paysListe.map((p) => ({ pays_id: p._id, statut_commande: { $in: p.ca_statuts_inclus || ['Confirmee'] } }));
+  const statutsParPays = paysListe.map((p) => ({ pays_id: p._id, statut_commande: { $in: statutsCA(p) } }));
   if (statutsParPays.length === 0) return { total: 0, comparaison: null, actifs: 0, recurrents: 0, taux_repeat: 0, taux_repeat_precedent: null, granularite: parMois ? 'mois' : 'jour', points: [] };
 
   async function compter(du, au) {
@@ -524,7 +537,7 @@ async function repartitionDepenses({ pays_id, periode, date, periode_debut, peri
   const ajouter = (type, montant) => parType.set(type, (parType.get(type) || toDecimal(0)).plus(montant));
 
   for (const pays of paysListe) {
-    const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+    const statutsInclus = statutsCA(pays);
     const [depenses, commandes] = await Promise.all([
       Depense.find({ pays_id: pays._id, date: { $gte: debut, $lte: fin } }).select('montant categorie_id date').lean(),
       Commande.find({
@@ -590,7 +603,7 @@ async function analyseCaPubDepenses({ pays_id, periode, date, periode_debut, per
   }
 
   for (const pays of paysListe) {
-    const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+    const statutsInclus = statutsCA(pays);
     const [commandes, depenses] = await Promise.all([
       Commande.find({ pays_id: pays._id, createdAt: { $gte: debut, $lte: fin }, statut_commande: { $in: statutsInclus } })
         .select('total reduction createdAt').lean(),
@@ -653,7 +666,7 @@ async function rentabilitePub({ pays_id, periode, date, periode_debut, periode_f
     let publicite = toDecimal(0);
     let commandesNb = 0;
     for (const pays of paysListe) {
-      const statutsInclus = pays.ca_statuts_inclus || ['Confirmee'];
+      const statutsInclus = statutsCA(pays);
       const [commandes, depenses] = await Promise.all([
         Commande.find({ pays_id: pays._id, createdAt: { $gte: du, $lte: au }, statut_commande: { $in: statutsInclus } })
           .select('total reduction createdAt').lean(),

@@ -25,7 +25,8 @@ const PaysSchema = new Schema(
     ca_statuts_inclus: {
       type: [String],
       enum: ['Nouvelle', 'Confirmee', 'Annulee', 'Refusee'],
-      default: ['Confirmee'],
+      // Nouvelle + Confirmée : le CA compte toutes les commandes en cours (voir dashboard.service.js).
+      default: ['Nouvelle', 'Confirmee'],
     },
     actif: { type: Boolean, default: true },
   },
