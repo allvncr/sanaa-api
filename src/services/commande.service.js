@@ -493,6 +493,12 @@ async function supprimer(id, { confirmerPaiements = false } = {}, req) {
   const commande = await Commande.findById(id);
   if (!commande) throw ApiError.notFound('Commande introuvable');
 
+  // Retour du 13/11/2026 : on n'efface jamais une commande active. Il faut
+  // d'abord l'annuler (la décision est ainsi tracée), puis la supprimer.
+  if (!['Annulee', 'Refusee'].includes(commande.statut_commande)) {
+    throw ApiError.conflict('Annulez d\'abord la commande avant de pouvoir la supprimer');
+  }
+
   const paiementsActifs = commande.paiements.filter((p) => !p.annule);
   if (paiementsActifs.length > 0 && !confirmerPaiements) {
     const montantTotal = sum(paiementsActifs.map((p) => p.montant)).toFixed(2);
@@ -752,12 +758,16 @@ const STATUTS_LIVRAISON = ['A_expedier', 'Recue_en_pays', 'En_livraison', 'Livre
  * règles, même trace dans le journal d'activité) ; une commande en échec (ex. pas
  * encore Confirmée) n'empêche pas les autres d'être traitées.
  */
-async function modifierStatutsEnLot({ ids, statut_fabrication, statut_livraison } = {}) {
+async function modifierStatutsEnLot({ ids, statut_commande, statut_fabrication, statut_livraison } = {}, req) {
   if (!Array.isArray(ids) || ids.length === 0) {
     throw ApiError.badRequest('Aucune commande sélectionnée');
   }
-  if (!statut_fabrication && !statut_livraison) {
-    throw ApiError.badRequest('Choisissez un statut de fabrication et/ou de livraison à appliquer');
+  if (!statut_commande && !statut_fabrication && !statut_livraison) {
+    throw ApiError.badRequest('Choisissez un statut à appliquer');
+  }
+  // Confirmation en lot de la vérification de fin de journée (retour du 13/11/2026).
+  if (statut_commande && !['Confirmee', 'Annulee'].includes(statut_commande)) {
+    throw ApiError.badRequest('Statut de commande invalide (Confirmée ou Annulée)');
   }
   if (statut_fabrication && !STATUTS_FABRICATION.includes(statut_fabrication)) {
     throw ApiError.badRequest('Statut de fabrication invalide');
@@ -770,6 +780,7 @@ async function modifierStatutsEnLot({ ids, statut_fabrication, statut_livraison 
   const echecs = [];
   for (const id of ids) {
     try {
+      if (statut_commande) await changerStatutCommande(id, statut_commande, req);
       if (statut_fabrication) await changerStatutFabrication(id, statut_fabrication);
       if (statut_livraison) await changerStatutLivraison(id, statut_livraison);
       reussies.push(id);

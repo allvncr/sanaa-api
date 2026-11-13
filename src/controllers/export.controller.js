@@ -13,6 +13,8 @@ const genererUsine = asyncHandler(async (req, res) => {
   sendOne(res, exp, 201);
 });
 
+const apercu = asyncHandler(async (req, res) => sendOne(res, await service.apercuExport(req.query.pays_id, req.query.date)));
+
 const lister = asyncHandler(async (req, res) => sendList(res, await service.lister(req.query)));
 
 const telecharger = asyncHandler(async (req, res) => {
@@ -20,4 +22,4 @@ const telecharger = asyncHandler(async (req, res) => {
   res.download(exp.chemin_fichier, exp.nom_fichier);
 });
 
-module.exports = { genererInterne, genererUsine, lister, telecharger };
+module.exports = { genererInterne, genererUsine, apercu, lister, telecharger };

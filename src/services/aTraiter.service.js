@@ -51,6 +51,7 @@ async function aTraiter({ pays_id } = {}) {
     .populate('pays_id', 'code')
     .lean();
 
+  const aConfirmer = [];
   const aEnvoyer = [];
   const fabricationRetard = [];
   const arriveeRetard = [];
@@ -88,6 +89,18 @@ async function aTraiter({ pays_id } = {}) {
     } else if (c.statut_fabrication === 'Erreur') {
       aEnvoyer.push(ligne(c, age, 'Erreur de fabrication signalée — à traiter avec l\'usine'));
     }
+  }
+
+  // Commandes saisies mais pas encore vérifiées (statut « Nouvelle », retour du
+  // 13/11/2026) : elles ne comptent ni dans le CA ni dans l'export usine tant
+  // qu'elles ne sont pas confirmées. Les plus anciennes d'abord.
+  const nouvelles = await Commande.find({ ...filtrePays, statut_commande: 'Nouvelle' })
+    .populate('client_id', 'nom telephone_whatsapp')
+    .populate('pays_id', 'code')
+    .lean();
+  for (const c of nouvelles) {
+    const age = joursEntre(new Date(c.createdAt), maintenant);
+    aConfirmer.push(ligne(c, age, age === 0 ? "Saisie aujourd'hui, à vérifier" : `Saisie il y a ${age} j, toujours à vérifier`));
   }
 
   // Livraisons prévues (calendrier) : retard = jour prévu dépassé sans confirmation.
@@ -151,6 +164,7 @@ async function aTraiter({ pays_id } = {}) {
   });
 
   const sections = [
+    section('a_confirmer', 'À vérifier et confirmer', 'Commandes saisies, pas encore confirmées : absentes de la fiche usine et du chiffre d\'affaires.', 'haute', aConfirmer),
     section('echecs', 'Échecs de livraison à reprendre', 'Le livreur n\'a pas pu livrer : à replanifier au calendrier.', 'haute', echecs),
     section('livraisons_non_confirmees', 'Livraisons prévues non confirmées', 'Le jour prévu est passé sans confirmation du livreur.', 'haute', livraisonsNonConfirmees),
     section('a_planifier', 'Reçues en pays, à planifier en livraison', 'Colis arrivés : à placer sur le calendrier des livraisons.', 'normale', aPlanifier),

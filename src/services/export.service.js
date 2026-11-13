@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
+const mongoose = require('mongoose');
 const Commande = require('../models/Commande');
 const Produit = require('../models/Produit');
 const Pays = require('../models/Pays');
@@ -47,15 +48,36 @@ function bornesJour(date) {
   return { debut, fin };
 }
 
-async function commandesDuJour(filtre, date) {
+/**
+ * Commandes d'un jour. Une commande annulée ou refusée n'apparaît dans aucun
+ * export (retour du 01/11/2026). Avec `seulementConfirmees` (export usine,
+ * retour du 13/11/2026), seules les commandes vérifiées et passées à Confirmée
+ * partent en fabrication : une commande encore « Nouvelle » attend la
+ * vérification de fin de journée.
+ */
+async function commandesDuJour(filtre, date, { seulementConfirmees = false } = {}) {
   const { debut, fin } = bornesJour(date);
-  // Une commande annulée ou refusée ne doit jamais partir en fabrication : elle
-  // n'apparaît dans aucun export (retour du 01/11/2026).
   return Commande.find({
     ...filtre,
     createdAt: { $gte: debut, $lt: fin },
-    statut_commande: { $nin: ['Annulee', 'Refusee'] },
+    statut_commande: seulementConfirmees ? 'Confirmee' : { $nin: ['Annulee', 'Refusee'] },
   }).populate('client_id');
+}
+
+/**
+ * Aperçu avant export (retour du 13/11/2026) : combien de commandes du jour
+ * partiraient dans la fiche usine (Confirmées) et combien attendent encore leur
+ * vérification (Nouvelles, donc absentes de la fiche usine).
+ */
+async function apercuExport(paysId, date) {
+  if (!paysId) throw ApiError.badRequest('Pays requis');
+  const { debut, fin } = bornesJour(date);
+  const groupes = await Commande.aggregate([
+    { $match: { pays_id: new mongoose.Types.ObjectId(String(paysId)), createdAt: { $gte: debut, $lt: fin } } },
+    { $group: { _id: '$statut_commande', total: { $sum: 1 } } },
+  ]);
+  const par = Object.fromEntries(groupes.map((g) => [g._id, g.total]));
+  return { confirmees: par.Confirmee || 0, nouvelles: par.Nouvelle || 0, annulees: (par.Annulee || 0) + (par.Refusee || 0) };
 }
 
 /**
@@ -141,6 +163,9 @@ async function genererExportInterne(paysId, date, utilisateurId) {
     { header: 'Client', key: 'client_nom', width: 28 },
     { header: 'Numero', key: 'numero_tel', width: 38.55 },
     { header: 'Adresse', key: 'adresse', width: 47.55 },
+    // Les commandes « Nouvelle » (pas encore vérifiées) figurent dans la fiche
+    // interne, contrairement à la fiche usine : on le voit ici.
+    { header: 'Statut', key: 'statut', width: 14 },
   ];
   feuille.getRow(1).eachCell((cell) => Object.assign(cell, STYLE_ENTETE));
 
@@ -171,6 +196,7 @@ async function genererExportInterne(paysId, date, utilisateurId) {
           client_nom: commande.client_id ? commande.client_id.nom : '',
           numero_tel: commande.client_id ? commande.client_id.telephone_whatsapp : '',
           adresse: commande.client_id ? commande.client_id.adresse : '',
+          statut: commande.statut_commande === 'Nouvelle' ? 'Nouvelle' : 'Confirmée',
         });
         ligneExcel.getCell('numero_ligne').font = { ...POLICE_CLASSEUR, bold: true };
         ligneExcel.getCell('ncommande').font = { ...POLICE_CLASSEUR, bold: true };
@@ -212,7 +238,7 @@ async function genererExportUsine(paysId, date, utilisateurId) {
   const pays = await Pays.findById(paysId);
   if (!pays) throw ApiError.notFound('Pays introuvable');
 
-  const commandes = await commandesDuJour({ pays_id: paysId }, date);
+  const commandes = await commandesDuJour({ pays_id: paysId }, date, { seulementConfirmees: true });
   const workbook = new ExcelJS.Workbook();
   const feuille = workbook.addWorksheet('Feuil1');
   feuille.columns = COLONNES_PRODUIT_ZH;
@@ -281,4 +307,5 @@ async function obtenir(id) {
   return exp;
 }
 
-module.exports = { genererExportInterne, genererExportUsine, lister, obtenir };
+module.exports = {
+  apercuExport, genererExportInterne, genererExportUsine, lister, obtenir };

@@ -6,6 +6,7 @@ const scopePays = require('../middlewares/scopePays');
 
 router.post('/interne', requirePermission('exports:generer'), scopePays('pays_id'), ctrl.genererInterne);
 router.post('/usine', requirePermission('exports:generer'), scopePays('pays_id'), ctrl.genererUsine);
+router.get('/apercu', requirePermission('exports:generer'), scopePays('pays_id'), ctrl.apercu);
 router.get('/', requirePermission('exports:telecharger'), scopePays('pays_id'), ctrl.lister);
 router.get('/:id/telecharger', requirePermission('exports:telecharger'), ctrl.telecharger);
 
